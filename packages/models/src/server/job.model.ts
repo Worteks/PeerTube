@@ -1,5 +1,5 @@
 import { ContextType } from '../activitypub/context.js'
-import { VideoStateType } from '../videos/index.js'
+import { VideoFileStreamType, VideoStateType } from '../videos/index.js'
 import { VideoStudioTaskCut } from '../videos/studio/index.js'
 import { SendEmailOptions } from './emailer.model.js'
 
@@ -29,7 +29,7 @@ export type JobType =
   | 'video-redundancy'
   | 'video-studio-edition'
   | 'video-transcoding'
-  | 'videos-views-stats'
+  | 'videos-stats'
   | 'generate-video-storyboard'
   | 'create-user-export'
   | 'import-user-archive'
@@ -99,26 +99,24 @@ export type VideoFileImportPayload = {
 export type VideoImportTorrentPayloadType = 'magnet-uri' | 'torrent-file'
 export type VideoImportYoutubeDLPayloadType = 'youtube-dl'
 
-export interface VideoImportYoutubeDLPayload {
-  type: VideoImportYoutubeDLPayloadType
+interface VideoImportAbstractPayload {
+  preventException: boolean
   videoImportId: number
-
   generateTranscription: boolean
+}
+
+export interface VideoImportYoutubeDLPayload extends VideoImportAbstractPayload {
+  type: VideoImportYoutubeDLPayloadType
 
   fileExt?: string
 }
 
-export interface VideoImportTorrentPayload {
+export interface VideoImportTorrentPayload extends VideoImportAbstractPayload {
   type: VideoImportTorrentPayloadType
-
-  generateTranscription: boolean
-
-  videoImportId: number
+  torrentPath: string | null // null if magnet URI
 }
 
-export type VideoImportPayload = (VideoImportYoutubeDLPayload | VideoImportTorrentPayload) & {
-  preventException: boolean
-}
+export type VideoImportPayload = VideoImportYoutubeDLPayload | VideoImportTorrentPayload
 
 export interface VideoImportPreventExceptionResult {
   resultType: 'success' | 'error'
@@ -147,7 +145,7 @@ export type ManageVideoTorrentPayload = {
 
 interface BaseTranscodingPayload {
   videoUUID: string
-  hasChildren?: boolean
+  canMoveVideoState: boolean
   isNewVideo?: boolean
 }
 
@@ -155,11 +153,14 @@ export interface HLSTranscodingPayload extends BaseTranscodingPayload {
   type: 'new-resolution-to-hls'
   resolution: number
   fps: number
-  copyCodecs: boolean
 
   separatedAudio: boolean
 
   deleteWebVideoFiles: boolean
+
+  inputStreams: VideoFileStreamType[]
+
+  transcodingRequestAt: string
 }
 
 export interface NewWebVideoResolutionTranscodingPayload extends BaseTranscodingPayload {
@@ -177,8 +178,6 @@ export interface MergeAudioTranscodingPayload extends BaseTranscodingPayload {
 
 export interface OptimizeTranscodingPayload extends BaseTranscodingPayload {
   type: 'optimize-to-web-video'
-
-  quickTranscode: boolean
 }
 
 export type VideoTranscodingPayload =
@@ -206,8 +205,15 @@ export type MoveStoragePayload = MoveVideoStoragePayload | MoveCaptionPayload
 
 export interface MoveVideoStoragePayload {
   videoUUID: string
-  isNewVideo: boolean
-  previousVideoState: VideoStateType
+
+  // FIXME: old API compatibility, remove in PeerTube v9
+  isNewVideo?: boolean
+  previousVideoState?: VideoStateType
+
+  moveVideoState?: {
+    isNewVideo: boolean
+    previousVideoState: VideoStateType
+  }
 }
 
 export interface MoveCaptionPayload {
@@ -249,8 +255,19 @@ export type VideoStudioTaskWatermarkPayload = {
     file: string
 
     watermarkSizeRatio: number
-    horitonzalMarginRatio: number
+    horizontalMarginRatio: number
     verticalMarginRatio: number
+  }
+}
+
+export type VideoStudioTaskRemoveSegmentsPayload = {
+  name: 'remove-segments'
+
+  options: {
+    segments: {
+      start: number
+      end: number
+    }[]
   }
 }
 
@@ -259,6 +276,7 @@ export type VideoStudioTaskPayload =
   | VideoStudioTaskIntroPayload
   | VideoStudioTaskOutroPayload
   | VideoStudioTaskWatermarkPayload
+  | VideoStudioTaskRemoveSegmentsPayload
 
 export interface VideoStudioEditionPayload {
   videoUUID: string
@@ -276,6 +294,7 @@ export interface VideoChannelImportPayload {
 
 export interface AfterVideoChannelImportPayload {
   channelSyncId: number
+  buildJobErrors: number
 }
 
 // ---------------------------------------------------------------------------

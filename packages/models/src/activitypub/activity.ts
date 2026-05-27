@@ -5,6 +5,7 @@ import {
   ActivityObject,
   APObjectId,
   CacheFileObject,
+  PlayerSettingsObject,
   PlaylistObject,
   VideoCommentObject,
   VideoObject,
@@ -12,7 +13,7 @@ import {
 } from './objects/index.js'
 
 export type ActivityUpdateObject =
-  | Extract<ActivityObject, VideoObject | CacheFileObject | PlaylistObject | ActivityPubActor | string>
+  | Extract<ActivityObject, VideoObject | CacheFileObject | PlaylistObject | ActivityPubActor | PlayerSettingsObject | string>
   | ActivityPubActor
 
 // Cannot Extract from Activity because of circular reference
@@ -43,6 +44,7 @@ export type Activity =
   | ActivityFlag
   | ActivityApproveReply
   | ActivityRejectReply
+  | ActivityDownload
 
 export type ActivityType =
   | 'Create'
@@ -59,6 +61,7 @@ export type ActivityType =
   | 'Flag'
   | 'ApproveReply'
   | 'RejectReply'
+  | 'Download'
 
 export interface ActivityAudience {
   to: string[]
@@ -160,4 +163,10 @@ export interface ActivityFlag extends BaseActivity {
   tag?: ActivityFlagReasonObject[]
   startAt?: number
   endAt?: number
+}
+
+export interface ActivityDownload extends BaseActivity {
+  type: 'Download'
+  actor: string
+  object: APObjectId
 }

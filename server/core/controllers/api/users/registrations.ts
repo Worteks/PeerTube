@@ -1,4 +1,5 @@
 import { pick } from '@peertube/peertube-core-utils'
+import { USER_REGISTRATION_STATES } from '@server/initializers/constants.js'
 import {
   HttpStatusCode,
   UserRegister,
@@ -27,6 +28,7 @@ import {
   asyncRetryTransactionMiddleware,
   authenticate,
   buildRateLimiter,
+  determineSignupMode,
   ensureUserHasRight,
   ensureUserRegistrationAllowedFactory,
   ensureUserRegistrationAllowedForIP,
@@ -36,7 +38,7 @@ import {
   setDefaultPagination,
   setDefaultSort,
   userRegistrationsSortValidator,
-  usersDirectRegistrationValidator,
+  usersRegistrationValidator,
   usersRequestRegistrationValidator
 } from '../../../middlewares/index.js'
 
@@ -97,9 +99,10 @@ registrationsRouter.get(
 registrationsRouter.post(
   '/register',
   registrationRateLimiter,
-  asyncMiddleware(ensureUserRegistrationAllowedFactory('direct-registration')),
+  asyncMiddleware(determineSignupMode),
+  asyncMiddleware(ensureUserRegistrationAllowedFactory()),
   ensureUserRegistrationAllowedForIP,
-  asyncMiddleware(usersDirectRegistrationValidator),
+  usersRegistrationValidator,
   asyncRetryTransactionMiddleware(registerUser)
 )
 
@@ -223,7 +226,8 @@ async function listRegistrations (req: express.Request, res: express.Response) {
     start: req.query.start,
     count: req.query.count,
     sort: req.query.sort,
-    search: req.query.search
+    search: req.query.search,
+    stateOneOf: req.query.stateOneOf
   })
 
   return res.json({
@@ -235,6 +239,10 @@ async function listRegistrations (req: express.Request, res: express.Response) {
 // ---------------------------------------------------------------------------
 
 async function registerUser (req: express.Request, res: express.Response) {
+  if (res.locals.signupMode === 'request-registration') {
+    return requestRegistration(req, res)
+  }
+
   const body: UserRegister = req.body
 
   const userToCreate = buildUser({
@@ -260,5 +268,10 @@ async function registerUser (req: express.Request, res: express.Response) {
 
   Hooks.runAction('action:api.user.registered', { body, user, account, videoChannel, req, res })
 
-  return res.sendStatus(HttpStatusCode.NO_CONTENT_204)
+  return res.json({
+    state: {
+      id: UserRegistrationState.ACCEPTED,
+      label: USER_REGISTRATION_STATES[UserRegistrationState.ACCEPTED]
+    }
+  })
 }

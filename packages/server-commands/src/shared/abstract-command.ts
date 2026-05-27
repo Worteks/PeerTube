@@ -1,8 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/no-floating-promises */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/no-floating-promises */
 
+import { pick } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, HttpStatusCodeType } from '@peertube/peertube-models'
 import { buildAbsoluteFixturePath, getFileSize } from '@peertube/peertube-node-utils'
 import { expect } from 'chai'
+import { createReadStream } from 'fs'
 import got, { Response as GotResponse } from 'got'
 import { isAbsolute } from 'path'
 import {
@@ -14,9 +16,6 @@ import {
   unwrapBody,
   unwrapText
 } from '../requests/requests.js'
-
-import { pick } from '@peertube/peertube-core-utils'
-import { createReadStream } from 'fs'
 import type { PeerTubeServer } from '../server/server.js'
 
 export interface OverrideCommandOptions {
@@ -263,6 +262,12 @@ export abstract class AbstractCommand {
     const initStatus = initializeSessionRes.status
 
     if (videoFilePath && initStatus === HttpStatusCode.CREATED_201) {
+      if (expectedStatus !== HttpStatusCode.OK_200) {
+        throw new Error(
+          `Expected status code is not correct for resumable upload initialization. Expected ${expectedStatus} but got success`
+        )
+      }
+
       const locationHeader = initializeSessionRes.header['location']
       expect(locationHeader).to.not.be.undefined
 
@@ -393,14 +398,16 @@ export abstract class AbstractCommand {
             Object.assign(headers, { digest: digestBuilder(chunk) })
           }
 
-          const res = await got<T>({
-            url: new URL(path + '?' + pathUploadId, server.url).toString(),
-            method: 'put',
-            headers,
-            body: chunk,
-            responseType: 'json',
-            throwHttpErrors: false
-          })
+          const res = await got<T>(
+            new URL(path + '?' + pathUploadId, server.url).toString(),
+            {
+              method: 'put',
+              headers,
+              body: chunk,
+              responseType: 'json',
+              throwHttpErrors: false
+            }
+          )
 
           start += chunk.length
 
@@ -413,7 +420,7 @@ export abstract class AbstractCommand {
             if (res.statusCode !== HttpStatusCode.PERMANENT_REDIRECT_308) {
               readable.off('data', onData)
 
-              // eslint-disable-next-line max-len
+              // oxlint-disable-next-line max-len
               const message =
                 `Incorrect transient behaviour sending intermediary chunks. Status code is ${res.statusCode} instead of ${expectedStatus}`
               return reject(new Error(message))

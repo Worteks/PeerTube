@@ -1,8 +1,17 @@
-import { CommonModule } from '@angular/common'
-import { Component, OnInit, forwardRef, inject, input, viewChild } from '@angular/core'
+import {
+  Component,
+  EnvironmentInjector,
+  OnInit,
+  afterNextRender,
+  forwardRef,
+  inject,
+  input,
+  runInInjectionContext,
+  viewChild
+} from '@angular/core'
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms'
 import { DragDropDirective } from '@app/+videos-publish-manage/+video-publish/shared/drag-drop.directive'
-import { ServerService } from '@app/core'
+import { Notifier, ServerService } from '@app/core'
 import { ReactiveFileComponent } from '@app/shared/shared-forms/reactive-file.component'
 import { BytesPipe } from '@app/shared/shared-main/common/bytes.pipe'
 import { EmbedComponent } from '@app/shared/shared-main/video/embed.component'
@@ -16,7 +25,7 @@ import { VideoEdit } from './video-edit.model'
   selector: 'my-thumbnail-manager',
   styleUrls: [ './thumbnail-manager.component.scss' ],
   templateUrl: './thumbnail-manager.component.html',
-  imports: [ CommonModule, ReactiveFileComponent, EmbedComponent, DragDropDirective, ButtonComponent ],
+  imports: [ ReactiveFileComponent, EmbedComponent, DragDropDirective, ButtonComponent ],
   providers: [
     {
       provide: NG_VALUE_ACCESSOR,
@@ -27,6 +36,8 @@ import { VideoEdit } from './video-edit.model'
 })
 export class ThumbnailManagerComponent implements OnInit, ControlValueAccessor {
   private serverService = inject(ServerService)
+  private notifier = inject(Notifier)
+  private environmentInjector = inject(EnvironmentInjector)
 
   readonly embed = viewChild<EmbedComponent>('embed')
 
@@ -119,8 +130,16 @@ export class ThumbnailManagerComponent implements OnInit, ControlValueAccessor {
   selectFromVideo () {
     this.selectingFromVideo = true
 
-    setTimeout(() => {
-      this.player = new PeerTubePlayer(this.embed().getIframe())
+    runInInjectionContext(this.environmentInjector, () => {
+      afterNextRender(() => {
+        try {
+          this.player = new PeerTubePlayer(this.embed().getIframe())
+        } catch (err) {
+          this.notifier.error('Error creating PeerTube embed: ' + err.message)
+          this.selectingFromVideo = false
+          return
+        }
+      })
     })
   }
 
@@ -145,7 +164,7 @@ export class ThumbnailManagerComponent implements OnInit, ControlValueAccessor {
 
     const blob: Blob = this.dataURItoBlob(dataUrl)
 
-    const file = new File([ blob ], 'preview-file-from-frame.jpg', { type: 'image/jpeg' })
+    const file = new File([ blob ], 'thumbnail-file-from-frame.jpg', { type: 'image/jpeg' })
 
     this.imageFile = file
 

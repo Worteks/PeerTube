@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { wait } from '@peertube/peertube-core-utils'
 import { RunnerJobState, VideoResolution } from '@peertube/peertube-models'
@@ -71,18 +71,15 @@ describe('Test transcription in peertube-runner program', function () {
       it('Should not run transcription on video without audio stream', async function () {
         this.timeout(360000)
 
+        const now = new Date()
+
         const uuid = await uploadForTranscription(servers[0], { fixture: 'video_short_no_audio.mp4' })
 
         await waitJobs(servers)
 
-        let continueWhile = true
-        while (continueWhile) {
-          await wait(500)
-
-          const { data } = await servers[0].runnerJobs.list({ stateOneOf: [ RunnerJobState.ERRORED ] })
-
-          continueWhile = !data.some(j => j.type === 'video-transcription')
-        }
+        const { data } = await servers[0].runnerJobs.list({ stateOneOf: [ RunnerJobState.ERRORED ] })
+        const job = data.some(j => j.type === 'video-transcription' && new Date(j.createdAt) >= now)
+        expect(job).to.be.false
 
         await checkNoCaption(servers, uuid)
         await checkLanguage(servers, uuid, null)

@@ -2,7 +2,6 @@ import { Feed } from '@peertube/feed'
 import { buildDownloadFilesUrl } from '@peertube/peertube-core-utils'
 import { VideoInclude, VideoResolution } from '@peertube/peertube-models'
 import { getVideoFileMimeType } from '@server/lib/video-file.js'
-import { cacheRouteFactory } from '@server/middlewares/index.js'
 import { VideoModel } from '@server/models/video/video.js'
 import express from 'express'
 import { extname } from 'path'
@@ -10,7 +9,8 @@ import { buildNSFWFilters } from '../../helpers/express-utils.js'
 import { ROUTE_CACHE_LIFETIME, WEBSERVER } from '../../initializers/constants.js'
 import {
   asyncMiddleware,
-  commonVideosFiltersValidator,
+  cacheRouteFactory,
+  commonVideosFiltersValidatorFactory,
   feedsAccountOrChannelFiltersValidator,
   feedsFormatValidator,
   setDefaultVideosSort,
@@ -21,7 +21,7 @@ import {
 import {
   buildFeedMetadata,
   getCommonVideoFeedAttributes,
-  getPodcastFeedUrlCustomTag,
+  getPodcastChannelFeedUrlCustomTag,
   getVideosForFeeds,
   initFeed,
   sendFeed
@@ -42,7 +42,7 @@ videoFeedsRouter.get(
   feedsFormatValidator,
   setFeedFormatContentType,
   cacheRouteMiddleware(ROUTE_CACHE_LIFETIME.FEEDS),
-  commonVideosFiltersValidator,
+  commonVideosFiltersValidatorFactory(),
   asyncMiddleware(feedsAccountOrChannelFiltersValidator),
   asyncMiddleware(generateVideoFeed)
 )
@@ -54,7 +54,7 @@ videoFeedsRouter.get(
   feedsFormatValidator,
   setFeedFormatContentType,
   cacheRouteMiddleware(ROUTE_CACHE_LIFETIME.FEEDS),
-  commonVideosFiltersValidator,
+  commonVideosFiltersValidatorFactory(),
   asyncMiddleware(videoSubscriptionFeedsValidator),
   asyncMiddleware(generateVideoFeedForSubscriptions)
 )
@@ -73,7 +73,7 @@ async function generateVideoFeed (req: express.Request, res: express.Response) {
 
   const { name, description, imageUrl, ownerImageUrl, link, ownerLink } = await buildFeedMetadata({ videoChannel, account })
 
-  const feed = initFeed({
+  const feed = await initFeed({
     name,
     description,
     link,
@@ -90,7 +90,7 @@ async function generateVideoFeed (req: express.Request, res: express.Response) {
       }
     ],
     customTags: videoChannel
-      ? [ getPodcastFeedUrlCustomTag(videoChannel) ]
+      ? [ getPodcastChannelFeedUrlCustomTag(videoChannel) ]
       : []
   })
 
@@ -114,7 +114,7 @@ async function generateVideoFeedForSubscriptions (req: express.Request, res: exp
   const account = res.locals.account
   const { name, description, imageUrl, link } = await buildFeedMetadata({ account })
 
-  const feed = initFeed({
+  const feed = await initFeed({
     name,
     description,
     link,
@@ -199,7 +199,7 @@ function addVideosToFeed (feed: Feed, videos: VideoModel[]) {
       videos: videoFiles,
 
       embed: {
-        url: WEBSERVER.URL + video.getEmbedStaticPath(),
+        url: video.getEmbedStaticUrl(),
         allowFullscreen: true
       },
       player: {

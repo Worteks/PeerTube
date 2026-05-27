@@ -119,6 +119,8 @@ plugins:
     check_latest_versions_interval: '10 minutes'
 
 federation:
+  # We use internal IP address in PeerTube tests
+  prevent_ssrf: false
   videos:
     cleanup_remote_interactions: false
 
@@ -126,6 +128,9 @@ views:
   videos:
     remote:
       max_age: -1
+
+    local:
+      max_age: '15 years'
 
     watching_interval:
       anonymous: '6 seconds'
@@ -139,3 +144,10 @@ video_studio:
 
 transcoding:
   keep_original_file: false
+
+user:
+  password_constraints:
+    min_length: 6
+
+download_generate_video:
+  max_parallel_downloads: 2

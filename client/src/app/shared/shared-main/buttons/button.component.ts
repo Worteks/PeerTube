@@ -1,5 +1,5 @@
 import { ObserversModule } from '@angular/cdk/observers'
-import { NgClass, NgIf, NgTemplateOutlet } from '@angular/common'
+import { NgClass, NgTemplateOutlet } from '@angular/common'
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -23,13 +23,14 @@ import { LoaderComponent } from '../common/loader.component'
 
 const debugLogger = debug('peertube:button')
 
+export type ButtonTheme = 'primary' | 'secondary' | 'tertiary' | 'danger'
+
 @Component({
   selector: 'my-button',
   styleUrls: [ './button.component.scss' ],
   templateUrl: './button.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    NgIf,
     NgClass,
     NgbTooltip,
     NgTemplateOutlet,
@@ -44,7 +45,7 @@ export class ButtonComponent implements OnChanges, AfterViewInit {
   private cd = inject(ChangeDetectorRef)
 
   readonly label = input('')
-  readonly theme = input<'primary' | 'secondary' | 'tertiary'>('secondary')
+  readonly theme = input<ButtonTheme>('secondary')
   readonly icon = input<GlobalIconName>(undefined)
 
   readonly href = input<string>(undefined)
@@ -64,6 +65,8 @@ export class ButtonComponent implements OnChanges, AfterViewInit {
   readonly rounded = input(false, { transform: booleanAttribute })
   readonly small = input(false, { transform: booleanAttribute })
   readonly show = input(false, { transform: booleanAttribute })
+  readonly inheritColor = input(false, { transform: booleanAttribute })
+  readonly form = input<string>()
 
   readonly labelContent = viewChild<ElementRef>('labelContent')
 
@@ -101,13 +104,15 @@ export class ButtonComponent implements OnChanges, AfterViewInit {
       'primary-button': this.theme() === 'primary',
       'secondary-button': this.theme() === 'secondary',
       'tertiary-button': this.theme() === 'tertiary',
+      'danger-button': this.theme() === 'danger',
       'has-icon': !!this.icon(),
       'rounded-icon-button': !!this.rounded(),
       'icon-only': !label,
       'label-xl': this.autoFontSize() && label.length > 10,
       'responsive-label': this.responsiveLabel(),
       'small-button': this.small(),
-      'show': this.show()
+      'show': this.show(),
+      'inherit-color': this.inheritColor()
     }
 
     debugLogger('Built button classes', { classes: this.classes, label, labelContent: this.labelContent() })

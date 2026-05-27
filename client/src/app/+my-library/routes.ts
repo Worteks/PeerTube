@@ -7,8 +7,7 @@ import { VideoBlockService } from '@app/shared/shared-moderation/video-block.ser
 import { UserSubscriptionService } from '@app/shared/shared-user-subscription/user-subscription.service'
 import { VideoCommentService } from '@app/shared/shared-video-comment/video-comment.service'
 import { LiveVideoService } from '@app/shared/shared-video-live/live-video.service'
-import { VideoPlaylistService } from '@app/shared/shared-video-playlist/video-playlist.service'
-import { WatchedWordsListService } from '@app/shared/standalone-watched-words/watched-words-list.service'
+import { WatchedWordsListService } from '@app/shared/shared-watched-words/watched-words-list.service'
 import { LoginGuard } from '../core'
 import { CommentsOnMyVideosComponent } from './comments-on-my-videos/comments-on-my-videos.component'
 import { AutomaticTagService } from './my-auto-tag-policies/automatic-tag.service'
@@ -18,7 +17,7 @@ import { MyFollowersComponent } from './my-follows/my-followers.component'
 import { MySubscriptionsComponent } from './my-follows/my-subscriptions.component'
 import { MyHistoryComponent } from './my-history/my-history.component'
 import { MyLibraryComponent } from './my-library.component'
-import { MyOwnershipComponent } from './my-ownership/my-ownership.component'
+import { MyOwnershipChangesComponent } from './my-ownership-changes/my-ownership-changes.component'
 import { MyVideoChannelSyncsComponent } from './my-video-channel-syncs/my-video-channel-syncs.component'
 import { VideoChannelSyncEditComponent } from './my-video-channel-syncs/video-channel-sync-edit/video-channel-sync-edit.component'
 import { MyVideoImportsComponent } from './my-video-imports/my-video-imports.component'
@@ -33,7 +32,6 @@ import { MyWatchedWordsListComponent } from './my-watched-words-list/my-watched-
 const commonConfig = {
   path: '',
   providers: [
-    VideoPlaylistService,
     BlocklistService,
     VideoBlockService,
     AbuseService,
@@ -107,7 +105,7 @@ const videoSpaceRoutes = [
   },
   {
     path: 'ownership',
-    component: MyOwnershipComponent,
+    component: MyOwnershipChangesComponent,
     data: {
       meta: {
         title: $localize`Ownership changes`

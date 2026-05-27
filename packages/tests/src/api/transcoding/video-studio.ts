@@ -118,7 +118,6 @@ describe('Test video studio', function () {
         await servers[0].config.save()
         await servers[0].config.enableMinimumTranscoding({ splitAudioAndVideo: true })
         await renewVideo('video_short1.webm')
-        await servers[0].config.rollback()
 
         const video = await servers[0].videos.get({ id: videoUUID })
         for (const file of video.files) {
@@ -146,6 +145,8 @@ describe('Test video studio', function () {
         for (const server of servers) {
           await checkVideoDuration(server, videoUUID, 4)
         }
+
+        await servers[0].config.rollback()
       })
     })
 
@@ -266,6 +267,47 @@ describe('Test video studio', function () {
       })
     })
 
+    describe('Removing segments', function () {
+      it('Should remove a single segment from the middle of the video', async function () {
+        this.timeout(120_000)
+        await renewVideo('video_short1.webm') // 10 seconds
+
+        await createTasks([
+          {
+            name: 'remove-segments',
+            options: {
+              segments: [ { start: 2, end: 6 } ] // removes 4s → 6s remaining
+            }
+          }
+        ])
+
+        for (const server of servers) {
+          await checkVideoDuration(server, videoUUID, 6)
+        }
+      })
+
+      it('Should remove multiple segments from the video', async function () {
+        this.timeout(120_000)
+        await renewVideo('video_short1.webm') // 10 seconds
+
+        await createTasks([
+          {
+            name: 'remove-segments',
+            options: {
+              segments: [
+                { start: 1, end: 3 }, // removes 2s
+                { start: 6, end: 8 } // removes 2s → 6s remaining
+              ]
+            }
+          }
+        ])
+
+        for (const server of servers) {
+          await checkVideoDuration(server, videoUUID, 6)
+        }
+      })
+    })
+
     describe('Watermark', function () {
       it('Should add a watermark to the video', async function () {
         this.timeout(120_000)
@@ -303,7 +345,7 @@ describe('Test video studio', function () {
       await createTasks(VideoStudioCommand.getComplexTask())
 
       for (const server of servers) {
-        await checkVideoDuration(server, videoUUID, 9)
+        await checkVideoDuration(server, videoUUID, VideoStudioCommand.getComplexTaskVideoDuration())
       }
     })
   })
@@ -325,7 +367,7 @@ describe('Test video studio', function () {
         const video = await server.videos.get({ id: videoUUID })
         expect(video.files).to.have.lengthOf(0)
 
-        await checkVideoDuration(server, videoUUID, 9)
+        await checkVideoDuration(server, videoUUID, VideoStudioCommand.getComplexTaskVideoDuration())
 
         await completeCheckHlsPlaylist({ servers, videoUUID, hlsOnly: true, resolutions: [ 720, 240 ] })
       }
@@ -349,7 +391,7 @@ describe('Test video studio', function () {
         const video = await server.videos.get({ id: videoUUID })
         expect(video.files).to.have.lengthOf(0)
 
-        await checkVideoDuration(server, videoUUID, 9)
+        await checkVideoDuration(server, videoUUID, VideoStudioCommand.getComplexTaskVideoDuration())
 
         await completeCheckHlsPlaylist({ servers, videoUUID, hlsOnly: true, splittedAudio: true, resolutions: [ 720, 240 ] })
       }
@@ -369,7 +411,7 @@ describe('Test video studio', function () {
       await waitJobs(servers)
 
       for (const server of servers) {
-        await checkVideoDuration(server, videoUUID, 9)
+        await checkVideoDuration(server, videoUUID, VideoStudioCommand.getComplexTaskVideoDuration())
       }
     })
 
@@ -417,7 +459,7 @@ describe('Test video studio', function () {
           expectStartWith(hlsFile.fileUrl, objectStorage.getMockPlaylistBaseUrl())
         }
 
-        await checkVideoDuration(server, videoUUID, 9)
+        await checkVideoDuration(server, videoUUID, VideoStudioCommand.getComplexTaskVideoDuration())
       }
     })
 

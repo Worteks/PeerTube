@@ -1,9 +1,10 @@
-import { NgClass, NgIf } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { Component, OnInit, inject } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { Router } from '@angular/router'
 import { AuthService, Notifier } from '@app/core'
 import { listUserChannelsForSelect } from '@app/helpers'
+import { REQUIRED_VALIDATOR } from '@app/shared/form-validators/common-validators'
 import { VIDEO_CHANNEL_EXTERNAL_URL_VALIDATOR } from '@app/shared/form-validators/video-channel-validators'
 import { FormReactive } from '@app/shared/shared-forms/form-reactive'
 import { FormReactiveService } from '@app/shared/shared-forms/form-reactive.service'
@@ -12,15 +13,14 @@ import { VideoChannelService } from '@app/shared/shared-main/channel/video-chann
 import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
 import { VideoChannelSyncCreate } from '@peertube/peertube-models'
 import { mergeMap } from 'rxjs'
-import { SelectChannelItem } from 'src/types'
+import { SelectChannelItem } from '@pt-types'
 import { SelectChannelComponent } from '../../../shared/shared-forms/select/select-channel.component'
-import { REQUIRED_VALIDATOR } from '@app/shared/form-validators/common-validators'
 
 @Component({
   selector: 'my-video-channel-sync-edit',
   templateUrl: './video-channel-sync-edit.component.html',
   styleUrls: [ './video-channel-sync-edit.component.scss' ],
-  imports: [ NgIf, FormsModule, ReactiveFormsModule, NgClass, SelectChannelComponent, AlertComponent ]
+  imports: [ FormsModule, ReactiveFormsModule, NgClass, SelectChannelComponent, AlertComponent ]
 })
 export class VideoChannelSyncEditComponent extends FormReactive implements OnInit {
   protected formReactiveService = inject(FormReactiveService)
@@ -41,7 +41,7 @@ export class VideoChannelSyncEditComponent extends FormReactive implements OnIni
       existingVideoStrategy: REQUIRED_VALIDATOR
     })
 
-    listUserChannelsForSelect(this.authService)
+    listUserChannelsForSelect(this.authService, { includeCollaborations: true })
       .subscribe(channels => this.userVideoChannels = channels)
   }
 
@@ -60,7 +60,7 @@ export class VideoChannelSyncEditComponent extends FormReactive implements OnIni
 
     const importExistingVideos = body['existingVideoStrategy'] === 'import'
 
-    this.videoChannelSyncService.createSync(videoChannelSyncCreate)
+    this.videoChannelSyncService.create(videoChannelSyncCreate)
       .pipe(mergeMap(({ videoChannelSync }) => {
         return importExistingVideos
           ? this.videoChannelService.importVideos(videoChannelSync.channel.name, videoChannelSync.externalChannelUrl, videoChannelSync.id)

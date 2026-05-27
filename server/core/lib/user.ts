@@ -2,6 +2,7 @@ import {
   ActivityPubActorType,
   UserAdminFlag,
   UserAdminFlagType,
+  UserNewFeatureInfo,
   UserNotificationSetting,
   UserNotificationSettingValue,
   UserRole,
@@ -10,7 +11,6 @@ import {
 import { logger } from '@server/helpers/logger.js'
 import { CONFIG } from '@server/initializers/config.js'
 import { UserModel } from '@server/models/user/user.js'
-import { MActorDefault } from '@server/types/models/actor/index.js'
 import { Transaction } from 'sequelize'
 import { SERVER_ACTOR_NAME, WEBSERVER } from '../initializers/constants.js'
 import { sequelizeTypescript } from '../initializers/database.js'
@@ -66,6 +66,7 @@ export function buildUser (options: {
     videosHistoryEnabled: CONFIG.USER.HISTORY.VIDEOS.ENABLED,
 
     autoPlayVideo: CONFIG.DEFAULTS.PLAYER.AUTO_PLAY,
+    language: null,
 
     role,
     emailVerified,
@@ -74,7 +75,9 @@ export function buildUser (options: {
     videoQuota,
     videoQuotaDaily,
 
-    pluginAuth
+    pluginAuth,
+
+    newFeaturesInfoRead: Object.values(UserNewFeatureInfo).reduce((all, curr) => all | curr, 0)
   })
 }
 
@@ -134,22 +137,19 @@ export async function createLocalAccountWithoutKeys (parameters: {
   type?: ActivityPubActorType
 }) {
   const { name, displayName, userId, applicationId, t, type = 'Person' } = parameters
-  const url = getLocalAccountActivityPubUrl(name)
 
-  const actorInstance = buildActorInstance(type, url, name)
-  const actorInstanceCreated: MActorDefault = await actorInstance.save({ transaction: t })
-
-  const accountInstance = new AccountModel({
+  const account = await AccountModel.create({
     name: displayName || name,
     userId,
-    applicationId,
-    actorId: actorInstanceCreated.id
-  })
+    applicationId
+  }, { transaction: t })
 
-  const accountInstanceCreated: MAccountDefault = await accountInstance.save({ transaction: t })
-  accountInstanceCreated.Actor = actorInstanceCreated
+  const url = getLocalAccountActivityPubUrl(name)
+  const actor = buildActorInstance(type, url, name)
+  actor.accountId = account.id
+  await actor.save({ transaction: t })
 
-  return accountInstanceCreated
+  return Object.assign(account, { Actor: actor })
 }
 
 export async function createApplicationActor (applicationId: number) {
@@ -188,6 +188,7 @@ export async function sendVerifyUserChangeEmail (user: MUser) {
   Emailer.Instance.addUserVerifyChangeEmailJob({
     username: user.username,
     to: user.pendingEmail,
+    language: user.getLanguage(),
     verifyEmailUrl: await buildUserVerifyEmail(user, true)
   })
 }
@@ -196,6 +197,7 @@ export async function sendVerifyRegistrationRequestEmail (registration: MRegistr
   Emailer.Instance.addRegistrationVerifyEmailJob({
     username: registration.username,
     to: registration.email,
+    language: CONFIG.INSTANCE.DEFAULT_LANGUAGE,
     verifyEmailUrl: await buildRegistrationRequestVerifyEmail(registration),
     isRegistrationRequest: true
   })
@@ -205,6 +207,7 @@ export async function sendVerifyRegistrationEmail (user: MUser) {
   Emailer.Instance.addRegistrationVerifyEmailJob({
     username: user.username,
     to: user.email,
+    language: user.getLanguage(),
     verifyEmailUrl: await buildUserVerifyEmail(user, false),
     isRegistrationRequest: true
   })
@@ -226,12 +229,12 @@ export async function getOriginalVideoFileTotalDailyFromUser (user: MUserId) {
 }
 
 export async function isUserQuotaValid (options: {
-  userId: number
-  uploadSize: number
+  channelUserId: number
+  uploadSize: number // In bytes
   checkDaily?: boolean // default true
 }) {
-  const { userId, uploadSize, checkDaily = true } = options
-  const user = await UserModel.loadById(userId)
+  const { channelUserId, uploadSize, checkDaily = true } = options
+  const user = await UserModel.loadById(channelUserId)
 
   if (user.videoQuota === -1 && user.videoQuotaDaily === -1) return Promise.resolve(true)
 
@@ -245,7 +248,7 @@ export async function isUserQuotaValid (options: {
 
   logger.debug(
     'Check user %d quota to upload content.',
-    userId,
+    channelUserId,
     { totalBytes, totalBytesDaily, videoQuota: user.videoQuota, videoQuotaDaily: user.videoQuotaDaily, uploadSize }
   )
 

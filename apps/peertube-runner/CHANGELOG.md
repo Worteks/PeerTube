@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.5.0
+
+ * Migrate to `tsdown` to build the runner. The peertube-runner filename is now `peertube.runner.mjs`
+ * Cleanup IPC socket when stopping the runner
+
+## v0.4.0
+
+ * Copy codecs for HLS transcoding if possible
+
+## v0.3.0
+
+ * Add generate storyboard support (PeerTube >= 8.0)
+
+## v0.2.0
+
+ * Add runner version in request and register payloads
+ * Update dependencies to fix vulnerabilities
+
 ## v0.1.3
 
  * Disable log coloring when TTY does not support it

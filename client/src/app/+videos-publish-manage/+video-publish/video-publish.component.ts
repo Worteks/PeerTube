@@ -1,12 +1,12 @@
-import { NgClass, NgIf, NgTemplateOutlet } from '@angular/common'
+import { NgClass, NgTemplateOutlet } from '@angular/common'
 import { Component, HostListener, OnInit, inject, viewChild } from '@angular/core'
 import { ActivatedRoute, Router, RouterLink } from '@angular/router'
 import { AuthService, AuthUser, CanComponentDeactivate, CanDeactivateGuard, HooksService, ServerService } from '@app/core'
 import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
 import { VideoService } from '@app/shared/shared-main/video/video.service'
 import { NgbNav, NgbNavContent, NgbNavItem, NgbNavLink, NgbNavLinkBase, NgbNavOutlet } from '@ng-bootstrap/ng-bootstrap'
-import { HTMLServerConfig, UserVideoQuota, VideoConstant, VideoPrivacyType } from '@peertube/peertube-models'
-import { SelectChannelItem } from 'src/types'
+import { HTMLServerConfig, UserVideoQuota, ConstantLabel, VideoPrivacyType } from '@peertube/peertube-models'
+import { SelectChannelItem } from '@pt-types'
 import { HelpComponent } from '../../shared/shared-main/buttons/help.component'
 import { ChannelsSetupMessageComponent } from '../../shared/shared-main/channel/channels-setup-message.component'
 import { UserQuotaComponent } from '../../shared/shared-main/users/user-quota.component'
@@ -23,7 +23,6 @@ import { VideoPublishResolverData } from './video-publish.resolver'
   templateUrl: './video-publish.component.html',
   styleUrls: [ './video-publish.component.scss' ],
   imports: [
-    NgIf,
     RouterLink,
     NgTemplateOutlet,
     UserQuotaComponent,
@@ -41,8 +40,7 @@ import { VideoPublishResolverData } from './video-publish.resolver'
     VideoImportUrlComponent,
     VideoUploadComponent,
     HelpComponent
-  ],
-  providers: [ VideoManageController ]
+  ]
 })
 export class VideoPublishComponent implements OnInit, CanComponentDeactivate {
   private auth = inject(AuthService)
@@ -81,7 +79,7 @@ export class VideoPublishComponent implements OnInit, CanComponentDeactivate {
 
   userChannels: SelectChannelItem[]
   userQuota: UserVideoQuota
-  privacies: VideoConstant<VideoPrivacyType>[]
+  privacies: ConstantLabel<VideoPrivacyType>[]
 
   private publishedIdQuery: string
   private uploadingQuery: string
@@ -105,7 +103,7 @@ export class VideoPublishComponent implements OnInit, CanComponentDeactivate {
     this.user = this.auth.getUser()
 
     this.serverConfig = this.serverService.getHTMLConfig()
-    this.highestPrivacy = this.videoService.getHighestAvailablePrivacy(privacies)
+    this.highestPrivacy = this.videoService.getMostPrivatePrivacy(privacies)
 
     if (this.route.snapshot.fragment) {
       this.onNavChange(this.route.snapshot.fragment as VideoManageType)

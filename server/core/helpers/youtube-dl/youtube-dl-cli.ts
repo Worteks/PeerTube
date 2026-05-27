@@ -34,7 +34,7 @@ export class YoutubeDLCLI {
 
     const gotOptions: OptionsOfBufferResponseBody = {
       context: { bodyKBLimit: 100_000 },
-      responseType: 'buffer' as 'buffer'
+      responseType: 'buffer'
     }
 
     if (process.env.YOUTUBE_DL_DOWNLOAD_BEARER_TOKEN) {
@@ -47,7 +47,7 @@ export class YoutubeDLCLI {
       let gotResult = await unsafeSSRFGot(url, gotOptions)
 
       if (!isBinaryResponse(gotResult)) {
-        const json = JSON.parse(gotResult.body.toString())
+        const json = JSON.parse(Buffer.from(gotResult.rawBody).toString())
         const latest = json.filter(release => release.prerelease === false)[0]
         if (!latest) throw new Error('Cannot find latest release')
 
@@ -213,7 +213,9 @@ export class YoutubeDLCLI {
   }) {
     const { url, args, timeout, processOptions } = options
 
-    let completeArgs = this.wrapWithProxyOptions(args)
+    let completeArgs = this.wrapWithJSRuntimeOptions(args)
+    completeArgs = this.wrapWithProxyOptions(completeArgs)
+    completeArgs = await this.wrapWithCookiesOptions(completeArgs)
     completeArgs = this.wrapWithIPOptions(completeArgs)
     completeArgs = this.wrapWithFFmpegOptions(completeArgs)
 
@@ -234,6 +236,14 @@ export class YoutubeDLCLI {
     return output.stdout
       ? output.stdout.trim().split(/\r?\n/)
       : undefined
+  }
+
+  private wrapWithJSRuntimeOptions (args: string[]) {
+    if (CONFIG.IMPORT.VIDEOS.HTTP.YOUTUBE_DL_RELEASE.NAME === 'yt-dlp') {
+      return [ '--js-runtimes', 'node:' + process.execPath ].concat(args)
+    }
+
+    return args
   }
 
   private wrapWithProxyOptions (args: string[]) {
@@ -261,6 +271,28 @@ export class YoutubeDLCLI {
     }
 
     return args
+  }
+
+  private async wrapWithCookiesOptions (args: string[]) {
+    if (!CONFIG.IMPORT.VIDEOS.HTTP.COOKIES.ENABLED) {
+      return args
+    }
+
+    const cookiesPath = join(CONFIG.STORAGE.TMP_PERSISTENT_DIR, 'youtube-cookies.txt')
+
+    if (!await pathExists(cookiesPath)) {
+      logger.error(
+        'yt-dlp cookies are enabled but the cookies file %s does not exist. Continuing without cookies.',
+        cookiesPath,
+        lTags()
+      )
+
+      return args
+    }
+
+    logger.debug('Using cookies file %s for YoutubeDL', cookiesPath, lTags())
+
+    return [ '--cookies', cookiesPath ].concat(args)
   }
 
   private wrapWithFFmpegOptions (args: string[]) {

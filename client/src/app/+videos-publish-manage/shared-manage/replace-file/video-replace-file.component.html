@@ -1,4 +1,4 @@
-<h2>
+<h2 class="form-title">
   <my-global-icon iconName="upload"></my-global-icon>
 
   <ng-container i18n>Replace file</ng-container>
@@ -7,12 +7,13 @@
 @if (getUnavailability()) {
   <my-alert type="primary" i18n>{{ getUnavailability() }}</my-alert>
 } @else {
-  <div class="root" myDragDrop (fileDropped)="onFileDropped($event)">
-    <div *ngIf="videoEdit.getVideoSource()" class="current-filename">
-      <div class="fs-7" i18n>Current uploaded file:</div>
-
-      <strong class="fs-5">{{ videoEdit.getVideoSource().filename }}</strong>
-    </div>
+  <form class="root" myDragDrop (fileDropped)="onFileDropped($event)" id="video-manage-form">
+    @if (videoEdit.getVideoSource()) {
+      <div class="current-filename">
+        <div class="fs-7" i18n>Current uploaded file:</div>
+        <strong class="fs-5">{{ videoEdit.getVideoSource().inputFilename }}</strong>
+      </div>
+    }
 
     <div class="mt-3">
       <div class="muted-1">
@@ -30,5 +31,5 @@
         </my-reactive-file>
       </div>
     </div>
-  </div>
+  </form>
 }

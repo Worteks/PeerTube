@@ -5,7 +5,7 @@ import { saveInTransactionWithRetries } from '@server/helpers/database-utils.js'
 import { logger, loggerTagsFactory } from '@server/helpers/logger.js'
 import { UserModel } from '@server/models/user/user.js'
 import { MUserDefault, MUserExport } from '@server/types/models/index.js'
-import archiver, { Archiver } from 'archiver'
+import type { Archiver } from 'archiver'
 import { createWriteStream } from 'fs'
 import { remove } from 'fs-extra/esm'
 import { join, parse } from 'path'
@@ -36,7 +36,6 @@ import {
 const lTags = loggerTagsFactory('user-export')
 
 export class UserExporter {
-
   private archive: Archiver
 
   async export (exportModel: MUserExport) {
@@ -51,7 +50,7 @@ export class UserExporter {
 
       if (exportModel.storage === FileStorage.FILE_SYSTEM) {
         output = createWriteStream(getFSUserExportFilePath(exportModel))
-        endPromise = new Promise<string>(res => output.on('close', () => res('')))
+        endPromise = new Promise<void>(res => output.on('close', () => res()))
       } else {
         output = new PassThrough()
         endPromise = storeUserExportFile(output as PassThrough, exportModel)
@@ -59,10 +58,9 @@ export class UserExporter {
 
       await this.createZip({ exportModel, user, output })
 
-      const fileUrl = await endPromise
+      await endPromise
 
       if (exportModel.storage === FileStorage.OBJECT_STORAGE) {
-        exportModel.fileUrl = fileUrl
         exportModel.size = await getUserExportFileObjectStorageSize(exportModel)
       } else if (exportModel.storage === FileStorage.FILE_SYSTEM) {
         exportModel.size = await getFileSize(getFSUserExportFilePath(exportModel))
@@ -106,22 +104,28 @@ export class UserExporter {
 
     let activityPubOutboxStore: ExportResult<any>['activityPubOutbox'] = []
 
-    this.archive = archiver('zip', {
-      zlib: {
-        level: 9
-      }
-    })
-
     return new Promise<void>(async (res, rej) => {
-      this.archive.on('warning', err => {
-        logger.warn('Warning to archive a file in ' + exportModel.filename, { ...lTags(), err })
-      })
+      try {
+        const archiver = await import('archiver')
 
-      this.archive.on('error', err => {
-        rej(err)
-      })
+        this.archive = archiver.default('zip', {
+          zlib: {
+            level: 9
+          }
+        })
 
-      this.archive.pipe(output)
+        this.archive.on('warning', err => {
+          logger.warn('Warning to archive a file in ' + exportModel.filename, { ...lTags(), err })
+        })
+
+        this.archive.on('error', err => {
+          rej(err)
+        })
+
+        this.archive.pipe(output)
+      } catch (err) {
+        return rej(err)
+      }
 
       try {
         for (const { exporter, jsonFilename } of this.buildExporters(exportModel, user)) {

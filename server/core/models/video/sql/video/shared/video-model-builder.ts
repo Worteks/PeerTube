@@ -10,6 +10,8 @@ import { ServerBlocklistModel } from '@server/models/server/server-blocklist.js'
 import { ServerModel } from '@server/models/server/server.js'
 import { TrackerModel } from '@server/models/server/tracker.js'
 import { UserVideoHistoryModel } from '@server/models/user/user-video-history.js'
+import { VideoCaptionModel } from '@server/models/video/video-caption.js'
+import { VideoLiveScheduleModel } from '@server/models/video/video-live-schedule.js'
 import { VideoSourceModel } from '@server/models/video/video-source.js'
 import { ScheduleVideoUpdateModel } from '../../../schedule-video-update.js'
 import { TagModel } from '../../../tag.js'
@@ -21,6 +23,7 @@ import { VideoLiveModel } from '../../../video-live.js'
 import { VideoStreamingPlaylistModel } from '../../../video-streaming-playlist.js'
 import { VideoModel } from '../../../video.js'
 import { VideoTableAttributes } from './video-table-attributes.js'
+import { TableAttributeOptions } from './table-attributes-options.model.js'
 
 type SQLRow = { [id: string]: string | number }
 
@@ -41,14 +44,18 @@ export class VideoModelBuilder {
   private serverBlocklistDone: Set<any>
   private liveDone: Set<any>
   private sourceDone: Set<any>
+  private liveScheduleDone: Set<any>
   private redundancyDone: Set<any>
   private scheduleVideoUpdateDone: Set<any>
 
   private trackersDone: Set<string>
   private tagsDone: Set<string>
   private autoTagsDone: Set<string>
+  private captionsDone: Set<any>
 
   private videos: VideoModel[]
+
+  private tableAttributeOptions: TableAttributeOptions
 
   private readonly buildOpts = { raw: true, isNewRecord: false }
 
@@ -60,21 +67,28 @@ export class VideoModelBuilder {
 
   buildVideosFromRows (options: {
     rows: SQLRow[]
+    addCaptions: boolean
     include?: VideoIncludeType
     rowsWebVideoFiles?: SQLRow[]
     rowsStreamingPlaylist?: SQLRow[]
+
+    tableAttributes?: TableAttributeOptions
   }) {
-    const { rows, rowsWebVideoFiles, rowsStreamingPlaylist, include } = options
+    const { rows, rowsWebVideoFiles, rowsStreamingPlaylist, include, addCaptions, tableAttributes } = options
+
+    this.tableAttributeOptions = tableAttributes
 
     this.reinit()
 
     for (const row of rows) {
-      this.buildVideoAndAccount(row)
+      this.buildVideoAndAccount(row, { addCaptions })
 
       const videoModel = this.videosMemo[row.id as number]
 
       this.setUserHistory(row, videoModel)
       this.addThumbnail(row, videoModel)
+      this.setLive(row, videoModel)
+      this.addLiveSchedule(row, videoModel)
 
       const channelActor = videoModel.VideoChannel?.Actor
       if (channelActor) {
@@ -98,9 +112,9 @@ export class VideoModelBuilder {
       if (this.mode === 'get') {
         this.addTag(row, videoModel)
         this.addTracker(row, videoModel)
+        this.addCaption(row, videoModel)
         this.setBlacklisted(row, videoModel)
         this.setScheduleVideoUpdate(row, videoModel)
-        this.setLive(row, videoModel)
       } else {
         if (include & VideoInclude.BLACKLISTED) {
           this.setBlacklisted(row, videoModel)
@@ -148,6 +162,7 @@ export class VideoModelBuilder {
     this.sourceDone = new Set()
     this.redundancyDone = new Set()
     this.scheduleVideoUpdateDone = new Set()
+    this.liveScheduleDone = new Set()
 
     this.accountBlocklistDone = new Set()
     this.serverBlocklistDone = new Set()
@@ -155,11 +170,12 @@ export class VideoModelBuilder {
     this.trackersDone = new Set()
     this.tagsDone = new Set()
     this.autoTagsDone = new Set()
+    this.captionsDone = new Set()
 
     this.videos = []
   }
 
-  private grabSeparateWebVideoFiles (rowsWebVideoFiles?: SQLRow[]) {
+  private grabSeparateWebVideoFiles (rowsWebVideoFiles: SQLRow[]) {
     if (!rowsWebVideoFiles) return
 
     for (const row of rowsWebVideoFiles) {
@@ -171,7 +187,7 @@ export class VideoModelBuilder {
     }
   }
 
-  private grabSeparateStreamingPlaylistFiles (rowsStreamingPlaylist?: SQLRow[]) {
+  private grabSeparateStreamingPlaylistFiles (rowsStreamingPlaylist: SQLRow[]) {
     if (!rowsStreamingPlaylist) return
 
     for (const row of rowsStreamingPlaylist) {
@@ -186,7 +202,9 @@ export class VideoModelBuilder {
     }
   }
 
-  private buildVideoAndAccount (row: SQLRow) {
+  private buildVideoAndAccount (row: SQLRow, options: {
+    addCaptions: boolean
+  }) {
     if (this.videosMemo[row.id]) return
 
     const videoModel = new VideoModel(this.grab(row, this.tables.getVideoAttributes(), ''), this.buildOpts)
@@ -198,6 +216,10 @@ export class VideoModelBuilder {
     videoModel.Tags = []
     videoModel.VideoAutomaticTags = []
     videoModel.Trackers = []
+
+    if (options.addCaptions === true) {
+      videoModel.VideoCaptions = []
+    }
 
     this.buildAccount(row, videoModel)
 
@@ -253,28 +275,50 @@ export class VideoModelBuilder {
   }
 
   private addActorAvatar (row: SQLRow, actorPrefix: string, actor: ActorModel) {
-    const avatarPrefix = `${actorPrefix}.Avatars`
-    const id = row[`${avatarPrefix}.id`]
-    const key = `${row.id}${id}`
-
-    if (!id || this.actorImagesDone.has(key)) return
-
-    const attributes = this.grab(row, this.tables.getAvatarAttributes(), avatarPrefix)
-    const avatarModel = new ActorImageModel(attributes, this.buildOpts)
-    actor.Avatars.push(avatarModel)
-
+    const key = `${actorPrefix}${row.id}`
+    if (this.actorImagesDone.has(key)) return
     this.actorImagesDone.add(key)
+
+    const avatars = row[`${actorPrefix}.AvatarsJSON`] as any || []
+    for (const avatar of avatars) {
+      const avatarModel = new ActorImageModel({
+        ...avatar,
+
+        createdAt: avatar.createdAt
+          ? new Date(avatar.createdAt)
+          : null,
+
+        updatedAt: avatar.updatedAt
+          ? new Date(avatar.updatedAt)
+          : null
+      }, this.buildOpts)
+
+      actor.Avatars.push(avatarModel)
+    }
   }
 
   private addThumbnail (row: SQLRow, videoModel: VideoModel) {
-    const id = row['Thumbnails.id']
-    if (!id || this.thumbnailsDone.has(id)) return
+    if (this.thumbnailsDone.has(videoModel.id)) return
 
-    const attributes = this.grab(row, this.tables.getThumbnailAttributes(), 'Thumbnails')
-    const thumbnailModel = new ThumbnailModel(attributes, this.buildOpts)
-    videoModel.Thumbnails.push(thumbnailModel)
+    const thumbnails = row['ThumbnailsJSON'] as any || []
 
-    this.thumbnailsDone.add(id)
+    for (const thumbnail of thumbnails) {
+      const thumbnailModel = new ThumbnailModel({
+        ...thumbnail,
+
+        createdAt: thumbnail.createdAt
+          ? new Date(thumbnail.createdAt)
+          : null,
+
+        updatedAt: thumbnail.updatedAt
+          ? new Date(thumbnail.updatedAt)
+          : null
+      }, this.buildOpts)
+
+      videoModel.Thumbnails.push(thumbnailModel)
+    }
+
+    this.thumbnailsDone.add(videoModel.id)
   }
 
   private addWebVideoFile (row: SQLRow, videoModel: VideoModel) {
@@ -322,7 +366,7 @@ export class VideoModelBuilder {
 
     if (!id || this.redundancyDone.has(id)) return
 
-    const attributes = this.grab(row, this.tables.getRedundancyAttributes(), redundancyPrefix)
+    const attributes = this.grab(row, this.tables.getRedundancyAttributes(this.tableAttributeOptions), redundancyPrefix)
     const redundancyModel = new VideoRedundancyModel(attributes, this.buildOpts)
     to.RedundancyVideos.push(redundancyModel)
 
@@ -370,6 +414,19 @@ export class VideoModelBuilder {
     videoModel.Trackers.push(trackerModel)
 
     this.trackersDone.add(key)
+  }
+
+  private addCaption (row: SQLRow, videoModel: VideoModel) {
+    const id = row['VideoCaptions.id']
+
+    if (!id || this.captionsDone.has(id)) return
+
+    const attributes = this.grab(row, this.tables.getCaptionAttributes(), 'VideoCaptions')
+    const captionModel = new VideoCaptionModel(attributes, this.buildOpts)
+
+    videoModel.VideoCaptions.push(captionModel)
+
+    this.captionsDone.add(id)
   }
 
   private setBlacklisted (row: SQLRow, videoModel: VideoModel) {
@@ -423,9 +480,28 @@ export class VideoModelBuilder {
     if (!id || this.liveDone.has(id)) return
 
     const attributes = this.grab(row, this.tables.getLiveAttributes(), 'VideoLive')
+
     videoModel.VideoLive = new VideoLiveModel(attributes, this.buildOpts)
 
     this.liveDone.add(id)
+  }
+
+  private addLiveSchedule (row: SQLRow, videoModel: VideoModel) {
+    const id = row['VideoLive.VideoLiveSchedules.id']
+    if (!id) return
+    if (this.liveScheduleDone.has(id)) return
+
+    const videoLiveScheduleAttributes = this.grab(row, this.tables.getLiveScheduleAttributes(), 'VideoLive.VideoLiveSchedules')
+
+    const liveScheduleModel = new VideoLiveScheduleModel(videoLiveScheduleAttributes, this.buildOpts)
+
+    if (!videoModel.VideoLive.LiveSchedules) {
+      videoModel.VideoLive.LiveSchedules = []
+    }
+
+    videoModel.VideoLive.LiveSchedules.push(liveScheduleModel)
+
+    this.liveScheduleDone.add(id)
   }
 
   private setSource (row: SQLRow, videoModel: VideoModel) {

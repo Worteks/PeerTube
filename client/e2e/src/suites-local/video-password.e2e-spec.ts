@@ -4,7 +4,7 @@ import { PlayerPage } from '../po/player.po'
 import { SignupPage } from '../po/signup.po'
 import { VideoPublishPage } from '../po/video-publish.po'
 import { VideoWatchPage } from '../po/video-watch.po'
-import { getScreenshotPath, go, isMobileDevice, isSafari, waitServerUp } from '../utils'
+import { go, isMobileDevice, isSafari, prepareWebBrowser, waitServerUp } from '../utils'
 
 describe('Password protected videos', () => {
   let videoPublishPage: VideoPublishPage
@@ -50,7 +50,7 @@ describe('Password protected videos', () => {
     playerPage = new PlayerPage()
     myAccountPage = new MyAccountPage()
 
-    await browser.maximizeWindow()
+    await prepareWebBrowser()
   })
 
   describe('Owner', function () {
@@ -105,8 +105,6 @@ describe('Password protected videos', () => {
 
     it('Should play video without password', async function () {
       await go(passwordProtectedVideoUrl)
-
-      expect(!await videoWatchPage.isPasswordProtected())
 
       await videoWatchPage.waitWatchVideoName(passwordProtectedVideoName)
 
@@ -176,8 +174,6 @@ describe('Password protected videos', () => {
     it('Should requires password to play video', async function () {
       await go(passwordProtectedVideoUrl)
 
-      expect(await videoWatchPage.isPasswordProtected())
-
       await videoWatchPage.fillVideoPassword(videoPassword)
       await videoWatchPage.waitWatchVideoName(passwordProtectedVideoName)
 
@@ -208,8 +204,6 @@ describe('Password protected videos', () => {
     it('Should requires password to play video', async function () {
       await go(passwordProtectedVideoUrl)
 
-      expect(await videoWatchPage.isPasswordProtected())
-
       await videoWatchPage.fillVideoPassword(videoPassword)
       await videoWatchPage.waitWatchVideoName(passwordProtectedVideoName)
 
@@ -228,9 +222,5 @@ describe('Password protected videos', () => {
       await playerPage.playVideo()
       await videoWatchPage.waitWatchVideoName(publicVideoName2, 40 * 1000)
     })
-  })
-
-  after(async () => {
-    await browser.saveScreenshot(getScreenshotPath('after-test.png'))
   })
 })

@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { expect } from 'chai'
-import { MockSmtpServer } from '@tests/shared/mock-servers/index.js'
+import { MockSmtpServer } from '@tests/shared/mock-servers/mock-email.js'
 import { HttpStatusCode } from '@peertube/peertube-models'
 import {
   cleanupTests,
@@ -75,8 +75,8 @@ describe('Test users email verification', function () {
   })
 
   it('Should not allow login for user with unverified email', async function () {
-    const { detail } = await server.login.login({ user: user1, expectedStatus: HttpStatusCode.BAD_REQUEST_400 })
-    expect(detail).to.contain('User email is not verified.')
+    const { code } = await server.login.login({ user: user1, expectedStatus: HttpStatusCode.BAD_REQUEST_400 })
+    expect(code).to.equal('email_not_verified')
   })
 
   it('Should verify the user via email and allow login', async function () {
@@ -158,7 +158,7 @@ describe('Test users email verification', function () {
   })
 
   after(async function () {
-    MockSmtpServer.Instance.kill()
+    await MockSmtpServer.Instance.kill()
 
     await cleanupTests([ server ])
   })

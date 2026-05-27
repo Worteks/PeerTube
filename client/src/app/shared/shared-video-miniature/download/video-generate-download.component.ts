@@ -1,4 +1,3 @@
-import { NgIf } from '@angular/common'
 import { Component, OnInit, inject, input, output } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { PeertubeCheckboxComponent } from '@app/shared/shared-forms/peertube-checkbox.component'
@@ -16,7 +15,6 @@ import { VideoDetails } from '../../shared-main/video/video-details.model'
   templateUrl: './video-generate-download.component.html',
   styleUrls: [ './video-generate-download.component.scss' ],
   imports: [
-    NgIf,
     FormsModule,
     GlobalIconComponent,
     PeertubeCheckboxComponent,
@@ -38,7 +36,7 @@ export class VideoGenerateDownloadComponent implements OnInit {
   videoFiles: VideoFile[]
 
   ngOnInit () {
-    this.videoFiles = this.buildVideoFiles()
+    this.videoFiles = this.video().getFilesForDownload()
     if (this.videoFiles.length === 0) return
 
     this.videoFileChosen = 'file-' + maxBy(this.videoFiles, 'resolution').id
@@ -106,16 +104,6 @@ export class VideoGenerateDownloadComponent implements OnInit {
   }
 
   // ---------------------------------------------------------------------------
-
-  private buildVideoFiles () {
-    const video = this.video()
-    if (!video) return []
-
-    const hls = video.getHlsPlaylist()
-    if (hls) return hls.files
-
-    return video.files
-  }
 
   private findCurrentFile () {
     return this.videoFiles.find(f => this.videoFileChosen === 'file-' + f.id)

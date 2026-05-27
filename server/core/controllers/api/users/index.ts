@@ -1,6 +1,9 @@
 import { pick } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, UserCreate, UserCreateResult, UserRight, UserUpdate } from '@peertube/peertube-models'
 import { tokensRouter } from '@server/controllers/api/users/token.js'
+import { retryTransactionWrapper } from '@server/helpers/database-utils.js'
+import { CONFIG } from '@server/initializers/config.js'
+import { getResetPasswordUrl } from '@server/lib/client-urls.js'
 import { Hooks } from '@server/lib/plugins/hooks.js'
 import { OAuthTokenModel } from '@server/models/oauth/oauth-token.js'
 import { MUserAccountDefault } from '@server/types/models/index.js'
@@ -8,7 +11,6 @@ import express from 'express'
 import { auditLoggerFactory, getAuditIdFromRes, UserAuditView } from '../../../helpers/audit-logger.js'
 import { logger, loggerTagsFactory } from '../../../helpers/logger.js'
 import { generateRandomString, getFormattedObjects } from '../../../helpers/utils.js'
-import { WEBSERVER } from '../../../initializers/constants.js'
 import { sequelizeTypescript } from '../../../initializers/database.js'
 import { Emailer } from '../../../lib/emailer.js'
 import { Redis } from '../../../lib/redis.js'
@@ -19,6 +21,7 @@ import {
   asyncMiddleware,
   asyncRetryTransactionMiddleware,
   authenticate,
+  buildRateLimiter,
   ensureUserHasRight,
   paginationValidator,
   setDefaultPagination,
@@ -51,6 +54,11 @@ import { userImportRouter } from './user-imports.js'
 
 const auditLogger = auditLoggerFactory('users')
 const lTags = loggerTagsFactory('api', 'users')
+
+const askResetPasswordRateLimiter = buildRateLimiter({
+  windowMs: CONFIG.RATES_LIMIT.ASK_SEND_EMAIL.WINDOW_MS,
+  max: CONFIG.RATES_LIMIT.ASK_SEND_EMAIL.MAX
+})
 
 const usersRouter = express.Router()
 
@@ -125,9 +133,18 @@ usersRouter.delete(
   asyncMiddleware(removeUser)
 )
 
-usersRouter.post('/ask-reset-password', asyncMiddleware(usersAskResetPasswordValidator), asyncMiddleware(askResetUserPassword))
+usersRouter.post(
+  '/ask-reset-password',
+  askResetPasswordRateLimiter,
+  asyncMiddleware(usersAskResetPasswordValidator),
+  asyncMiddleware(askResetUserPassword)
+)
 
-usersRouter.post('/:id/reset-password', asyncMiddleware(usersResetPasswordValidator), asyncMiddleware(resetUserPassword))
+usersRouter.post(
+  '/:id/reset-password',
+  asyncMiddleware(usersResetPasswordValidator),
+  asyncMiddleware(resetUserPassword)
+)
 
 // ---------------------------------------------------------------------------
 
@@ -161,11 +178,17 @@ async function createUser (req: express.Request, res: express.Response) {
   logger.info('User %s with its channel and account created.', body.username, lTags(user.username))
 
   if (createPassword) {
-    // this will send an email for newly created users, so then can set their first password.
+    // This will send an email for newly created users, so then can set their first password
     logger.info('Sending to user %s a create password email', body.username, lTags(user.username))
+
     const verificationString = await Redis.Instance.setCreatePasswordVerificationString(user.id)
-    const url = WEBSERVER.URL + '/reset-password?userId=' + user.id + '&verificationString=' + verificationString
-    Emailer.Instance.addPasswordCreateEmailJob(userToCreate.username, user.email, url)
+
+    Emailer.Instance.addPasswordCreateEmailJob({
+      username: userToCreate.username,
+      to: user.email,
+      language: user.getLanguage(),
+      createPasswordUrl: getResetPasswordUrl(user, verificationString)
+    })
   }
 
   Hooks.runAction('action:api.user.created', { body, user, account, videoChannel, req, res })
@@ -223,7 +246,8 @@ async function listUsers (req: express.Request, res: express.Response) {
     count: req.query.count,
     sort: req.query.sort,
     search: req.query.search,
-    blocked: req.query.blocked
+    blocked: req.query.blocked,
+    role: req.query.role
   })
 
   return res.json(getFormattedObjects(resultList.data, resultList.total, { withAdminFlags: true }))
@@ -235,9 +259,11 @@ async function removeUser (req: express.Request, res: express.Response) {
 
   auditLogger.delete(getAuditIdFromRes(res), new UserAuditView(user.toFormattedJSON()))
 
-  await sequelizeTypescript.transaction(async t => {
-    // Use a transaction to avoid inconsistencies with hooks (account/channel deletion & federation)
-    await user.destroy({ transaction: t })
+  await retryTransactionWrapper(() => {
+    return sequelizeTypescript.transaction(t => {
+      // Use a transaction to avoid inconsistencies with hooks (account/channel deletion & federation)
+      return user.destroy({ transaction: t })
+    })
   })
 
   logger.info(`Removed user ${user.username} by moderator ${byUser.username}.`, lTags(user.username, byUser.username))
@@ -289,8 +315,12 @@ async function askResetUserPassword (req: express.Request, res: express.Response
   const user = res.locals.user
 
   const verificationString = await Redis.Instance.setResetPasswordVerificationString(user.id)
-  const url = WEBSERVER.URL + '/reset-password?userId=' + user.id + '&verificationString=' + verificationString
-  Emailer.Instance.addPasswordResetEmailJob(user.username, user.email, url)
+  Emailer.Instance.addPasswordResetEmailJob({
+    username: user.username,
+    to: user.email,
+    language: user.getLanguage(),
+    resetPasswordUrl: getResetPasswordUrl(user, verificationString)
+  })
 
   logger.info(`User ${user.username} asked password reset.`, lTags(user.username))
 
@@ -321,7 +351,7 @@ async function changeUserBlock (res: express.Response, user: MUserAccountDefault
     await user.save({ transaction: t })
   })
 
-  Emailer.Instance.addUserBlockJob(user, block, reason)
+  Emailer.Instance.addUserBlockJob({ username: user.username, email: user.email, language: user.getLanguage(), blocked: block, reason })
 
   auditLogger.update(getAuditIdFromRes(res), new UserAuditView(user.toFormattedJSON()), oldUserAuditView)
 }

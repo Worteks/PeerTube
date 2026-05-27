@@ -1,7 +1,8 @@
-import { HttpStatusCode, VideoCaptionGenerate } from '@peertube/peertube-models'
+import { HttpStatusCode, VideoCaptionGenerate, VideoChannelActivityAction } from '@peertube/peertube-models'
 import { retryTransactionWrapper } from '@server/helpers/database-utils.js'
 import { Hooks } from '@server/lib/plugins/hooks.js'
 import { createLocalCaption, createTranscriptionTaskIfNeeded, updateHLSMasterOnCaptionChangeIfNeeded } from '@server/lib/video-captions.js'
+import { VideoChannelActivityModel } from '@server/models/video/video-channel-activity.js'
 import { VideoJobInfoModel } from '@server/models/video/video-job-info.js'
 import express from 'express'
 import { createReqFiles } from '../../../helpers/express-utils.js'
@@ -58,7 +59,7 @@ export {
 // ---------------------------------------------------------------------------
 
 async function createGenerateVideoCaption (req: express.Request, res: express.Response) {
-  const video = res.locals.videoAll
+  const video = res.locals.videoWithRights
 
   const body = req.body as VideoCaptionGenerate
   if (body.forceTranscription === true) {
@@ -71,14 +72,14 @@ async function createGenerateVideoCaption (req: express.Request, res: express.Re
 }
 
 async function listVideoCaptions (req: express.Request, res: express.Response) {
-  const data = await VideoCaptionModel.listVideoCaptions(res.locals.onlyVideo.id)
+  const data = await VideoCaptionModel.listVideoCaptions(res.locals.videoWithBlacklist.id)
 
   return res.json(getFormattedObjects(data, data.length))
 }
 
 async function createVideoCaption (req: express.Request, res: express.Response) {
   const videoCaptionPhysicalFile: Express.Multer.File = req.files['captionfile'][0]
-  const video = res.locals.videoAll
+  const video = res.locals.videoFull
 
   const captionLanguage = req.params.captionLanguage
 
@@ -94,7 +95,17 @@ async function createVideoCaption (req: express.Request, res: express.Response) 
   }
 
   await retryTransactionWrapper(() => {
-    return sequelizeTypescript.transaction(t => federateVideoIfNeeded(video, false, t))
+    return sequelizeTypescript.transaction(async t => {
+      await VideoChannelActivityModel.addVideoActivity({
+        action: VideoChannelActivityAction.UPDATE_CAPTIONS,
+        user: res.locals.oauth.token.User,
+        channel: video.VideoChannel,
+        video,
+        transaction: t
+      })
+
+      return federateVideoIfNeeded(video, false, t)
+    })
   })
 
   Hooks.runAction('action:api.video-caption.created', { caption: videoCaption, req, res })
@@ -103,7 +114,7 @@ async function createVideoCaption (req: express.Request, res: express.Response) 
 }
 
 async function deleteVideoCaption (req: express.Request, res: express.Response) {
-  const video = res.locals.videoAll
+  const video = res.locals.videoFull
   const videoCaption = res.locals.videoCaption
   const hasM3U8 = !!videoCaption.m3u8Filename
 
@@ -116,7 +127,17 @@ async function deleteVideoCaption (req: express.Request, res: express.Response) 
   }
 
   await retryTransactionWrapper(() => {
-    return sequelizeTypescript.transaction(t => federateVideoIfNeeded(video, false, t))
+    return sequelizeTypescript.transaction(async t => {
+      await VideoChannelActivityModel.addVideoActivity({
+        action: VideoChannelActivityAction.UPDATE_CAPTIONS,
+        user: res.locals.oauth.token.User,
+        channel: video.VideoChannel,
+        video,
+        transaction: t
+      })
+
+      return federateVideoIfNeeded(video, false, t)
+    })
   })
 
   logger.info('Video caption %s of video %s deleted.', videoCaption.language, video.uuid, lTags(video.uuid))

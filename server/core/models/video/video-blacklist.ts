@@ -4,8 +4,8 @@ import { FindOptions } from 'sequelize'
 import { AllowNull, BelongsTo, Column, CreatedAt, DataType, Default, ForeignKey, Is, Table, UpdatedAt } from 'sequelize-typescript'
 import { isVideoBlacklistReasonValid, isVideoBlacklistTypeValid } from '../../helpers/custom-validators/video-blacklist.js'
 import { CONSTRAINTS_FIELDS } from '../../initializers/constants.js'
-import { SequelizeModel, getBlacklistSort, searchAttribute, throwIfNotValid } from '../shared/index.js'
-import { ThumbnailModel } from './thumbnail.js'
+import { getBlacklistSort, searchAttribute, SequelizeModel, throwIfNotValid } from '../shared/index.js'
+import { thumbnailAPIAttributes, ThumbnailModel } from './thumbnail.js'
 import { SummaryOptions, VideoChannelModel, ScopeNames as VideoChannelScopeNames } from './video-channel.js'
 import { VideoModel } from './video.js'
 
@@ -19,31 +19,30 @@ import { VideoModel } from './video.js'
   ]
 })
 export class VideoBlacklistModel extends SequelizeModel<VideoBlacklistModel> {
-
   @AllowNull(true)
   @Is('VideoBlacklistReason', value => throwIfNotValid(value, isVideoBlacklistReasonValid, 'reason', true))
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.VIDEO_BLACKLIST.REASON.max))
-  reason: string
+  declare reason: string
 
   @AllowNull(false)
   @Column
-  unfederated: boolean
+  declare unfederated: boolean
 
   @AllowNull(false)
   @Default(null)
   @Is('VideoBlacklistType', value => throwIfNotValid(value, isVideoBlacklistTypeValid, 'type'))
   @Column
-  type: VideoBlacklistType_Type
+  declare type: VideoBlacklistType_Type
 
   @CreatedAt
-  createdAt: Date
+  declare createdAt: Date
 
   @UpdatedAt
-  updatedAt: Date
+  declare updatedAt: Date
 
   @ForeignKey(() => VideoModel)
   @Column
-  videoId: number
+  declare videoId: number
 
   @BelongsTo(() => VideoModel, {
     foreignKey: {
@@ -51,7 +50,7 @@ export class VideoBlacklistModel extends SequelizeModel<VideoBlacklistModel> {
     },
     onDelete: 'cascade'
   })
-  Video: Awaited<VideoModel>
+  declare Video: Awaited<VideoModel>
 
   static listForApi (parameters: {
     start: number
@@ -85,7 +84,7 @@ export class VideoBlacklistModel extends SequelizeModel<VideoBlacklistModel> {
           },
           {
             model: ThumbnailModel,
-            attributes: [ 'type', 'filename' ],
+            attributes: thumbnailAPIAttributes,
             required: false
           }
         ]

@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common'
+import { CommonModule, NgTemplateOutlet } from '@angular/common'
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -13,9 +13,10 @@ import {
 import { AuthService, ScreenService, ServerService, User } from '@app/core'
 import { NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap'
 import { HTMLServerConfig, VideoPlaylistType, VideoPrivacy } from '@peertube/peertube-models'
-import { switchMap } from 'rxjs/operators'
+import { first, switchMap } from 'rxjs/operators'
 import { LinkType } from '../../../types/link.type'
 import { ActorAvatarComponent } from '../shared-actor-image/actor-avatar.component'
+import { ActorHostComponent } from '../shared-actor/actor-host.component'
 import { GlobalIconComponent } from '../shared-icons/global-icon.component'
 import { LinkComponent } from '../shared-main/common/link.component'
 import { DateToggleComponent } from '../shared-main/date/date-toggle.component'
@@ -24,7 +25,6 @@ import { VideoService } from '../shared-main/video/video.service'
 import { VideoThumbnailComponent } from '../shared-thumbnail/video-thumbnail.component'
 import { VideoPlaylistService } from '../shared-video-playlist/video-playlist.service'
 import { VideoViewsCounterComponent } from '../shared-video/video-views-counter.component'
-import { ActorHostComponent } from '../standalone-actor/actor-host.component'
 import { VideoActionsDisplayType, VideoActionsDropdownComponent } from './video-actions-dropdown.component'
 
 export type MiniatureDisplayOptions = {
@@ -52,7 +52,8 @@ export type MiniatureDisplayOptions = {
     VideoActionsDropdownComponent,
     ActorHostComponent,
     GlobalIconComponent,
-    NgbTooltipModule
+    NgbTooltipModule,
+    NgTemplateOutlet
   ]
 })
 export class VideoMiniatureComponent implements OnInit {
@@ -65,6 +66,7 @@ export class VideoMiniatureComponent implements OnInit {
 
   readonly user = input.required<User>()
   readonly video = input.required<Video>()
+  readonly thumbnailSizes = input('')
 
   readonly displayOptions = input<MiniatureDisplayOptions>({
     date: true,
@@ -84,7 +86,8 @@ export class VideoMiniatureComponent implements OnInit {
     delete: true,
     report: true,
     duplicate: true,
-    mute: true
+    muteByUser: true,
+    muteByServer: true
   })
 
   readonly actorImageSize = input(34, { transform: numberAttribute })
@@ -96,7 +99,7 @@ export class VideoMiniatureComponent implements OnInit {
   readonly videoBlocked = output()
   readonly videoUnblocked = output()
   readonly videoRemoved = output()
-  readonly videoAccountMuted = output()
+  readonly muted = output()
 
   showActions = false
   serverConfig: HTMLServerConfig
@@ -121,6 +124,8 @@ export class VideoMiniatureComponent implements OnInit {
 
   nsfwTooltip: string
 
+  defaultThumbnailSizes: string
+
   private ownerDisplayType: 'account' | 'videoChannel'
   private actionsLoaded = false
 
@@ -142,6 +147,12 @@ export class VideoMiniatureComponent implements OnInit {
 
   ngOnInit () {
     this.serverConfig = this.serverService.getHTMLConfig()
+
+    if (this.displayAsRow()) {
+      this.defaultThumbnailSizes = '280px'
+    } else {
+      this.defaultThumbnailSizes = '(width <= 800px) 800px, 280px'
+    }
 
     this.buildVideoLink()
     this.buildOwnerLink()
@@ -244,8 +255,8 @@ export class VideoMiniatureComponent implements OnInit {
     this.videoRemoved.emit()
   }
 
-  onVideoAccountMuted () {
-    this.videoAccountMuted.emit()
+  onMuted () {
+    this.muted.emit()
   }
 
   isUserLoggedIn () {
@@ -322,7 +333,7 @@ export class VideoMiniatureComponent implements OnInit {
     if (this.screenService.isInTouchScreen() || !this.displayVideoActions() || !this.isUserLoggedIn()) return
 
     this.authService.userInformationLoaded
-      .pipe(switchMap(() => this.videoPlaylistService.listenToVideoPlaylistChange(this.video().id)))
+      .pipe(first(), switchMap(() => this.videoPlaylistService.listenToVideoPlaylistChange(this.video().id)))
       .subscribe(existResult => {
         const watchLaterPlaylist = this.authService.getUser().specialPlaylists.find(p => p.type === VideoPlaylistType.WATCH_LATER)
         const existsInWatchLater = existResult.find(r => r.playlistId === watchLaterPlaylist.id)

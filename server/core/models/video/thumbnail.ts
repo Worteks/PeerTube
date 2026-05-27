@@ -1,27 +1,36 @@
-import { ActivityIconObject, ThumbnailType, type ThumbnailType_Type } from '@peertube/peertube-models'
-import { afterCommitIfTransaction } from '@server/helpers/database-utils.js'
-import { MThumbnail, MThumbnailVideo, MVideo, MVideoPlaylist } from '@server/types/models/index.js'
+import { ActivityIconObject, Thumbnail, type ThumbnailAspectRatio } from '@peertube/peertube-models'
+import { AttributesOnly } from '@peertube/peertube-typescript-utils'
+import { CONFIG } from '@server/initializers/config.js'
+import { MThumbnail } from '@server/types/models/index.js'
 import { remove } from 'fs-extra/esm'
-import { join } from 'path'
+import { extname, join } from 'path'
+import { Op } from 'sequelize'
 import {
   AfterDestroy,
   AllowNull,
-  BeforeCreate,
-  BeforeUpdate,
   BelongsTo,
   Column,
   CreatedAt,
   DataType,
   Default,
-  ForeignKey, Table,
+  ForeignKey,
+  Table,
   UpdatedAt
 } from 'sequelize-typescript'
 import { logger } from '../../helpers/logger.js'
-import { CONFIG } from '../../initializers/config.js'
-import { CONSTRAINTS_FIELDS, LAZY_STATIC_PATHS, WEBSERVER } from '../../initializers/constants.js'
+import { CONSTRAINTS_FIELDS, FILES_CACHE, LAZY_STATIC_PATHS, MIMETYPES, WEBSERVER } from '../../initializers/constants.js'
+import { SequelizeModel } from '../shared/sequelize-type.js'
+import { buildSQLAttributes } from '../shared/table.js'
 import { VideoPlaylistModel } from './video-playlist.js'
 import { VideoModel } from './video.js'
-import { SequelizeModel } from '../shared/sequelize-type.js'
+
+export const thumbnailAPIAttributes = [
+  'filename',
+  'fileUrl',
+  'width',
+  'height',
+  'aspectRatio'
+] as const satisfies (keyof AttributesOnly<ThumbnailModel>)[]
 
 @Table({
   tableName: 'thumbnail',
@@ -30,50 +39,49 @@ import { SequelizeModel } from '../shared/sequelize-type.js'
       fields: [ 'videoId' ]
     },
     {
-      fields: [ 'videoPlaylistId' ],
-      unique: true
+      fields: [ 'videoPlaylistId' ]
     },
     {
-      fields: [ 'filename', 'type' ],
+      fields: [ 'filename' ],
       unique: true
     }
   ]
 })
 export class ThumbnailModel extends SequelizeModel<ThumbnailModel> {
-
   @AllowNull(false)
   @Column
-  filename: string
+  declare filename: string
 
   @AllowNull(true)
   @Default(null)
   @Column
-  height: number
+  declare height: number
 
   @AllowNull(true)
   @Default(null)
   @Column
-  width: number
+  declare width: number
 
   @AllowNull(false)
+  @Default(null)
   @Column
-  type: ThumbnailType_Type
+  declare aspectRatio: ThumbnailAspectRatio
 
   @AllowNull(true)
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.COMMONS.URL.max))
-  fileUrl: string
+  declare fileUrl: string
 
   @AllowNull(true)
   @Column
-  automaticallyGenerated: boolean
+  declare automaticallyGenerated: boolean
 
   @AllowNull(false)
   @Column
-  onDisk: boolean
+  declare cached: boolean
 
   @ForeignKey(() => VideoModel)
   @Column
-  videoId: number
+  declare videoId: number
 
   @BelongsTo(() => VideoModel, {
     foreignKey: {
@@ -81,11 +89,11 @@ export class ThumbnailModel extends SequelizeModel<ThumbnailModel> {
     },
     onDelete: 'CASCADE'
   })
-  Video: Awaited<VideoModel>
+  declare Video: Awaited<VideoModel>
 
   @ForeignKey(() => VideoPlaylistModel)
   @Column
-  videoPlaylistId: number
+  declare videoPlaylistId: number
 
   @BelongsTo(() => VideoPlaylistModel, {
     foreignKey: {
@@ -93,147 +101,101 @@ export class ThumbnailModel extends SequelizeModel<ThumbnailModel> {
     },
     onDelete: 'CASCADE'
   })
-  VideoPlaylist: Awaited<VideoPlaylistModel>
+  declare VideoPlaylist: Awaited<VideoPlaylistModel>
 
   @CreatedAt
-  createdAt: Date
+  declare createdAt: Date
 
   @UpdatedAt
-  updatedAt: Date
-
-  // If this thumbnail replaced existing one, track the old name
-  previousThumbnailFilename: string
-
-  private static readonly types: { [ id in ThumbnailType_Type ]: { label: string, directory: string, staticPath: string } } = {
-    [ThumbnailType.MINIATURE]: {
-      label: 'miniature',
-      directory: CONFIG.STORAGE.THUMBNAILS_DIR,
-      staticPath: LAZY_STATIC_PATHS.THUMBNAILS
-    },
-    [ThumbnailType.PREVIEW]: {
-      label: 'preview',
-      directory: CONFIG.STORAGE.PREVIEWS_DIR,
-      staticPath: LAZY_STATIC_PATHS.PREVIEWS
-    }
-  }
-
-  @BeforeCreate
-  @BeforeUpdate
-  static removeOldFile (instance: ThumbnailModel, options) {
-    return afterCommitIfTransaction(options.transaction, () => instance.removePreviousFilenameIfNeeded())
-  }
+  declare updatedAt: Date
 
   @AfterDestroy
   static removeFiles (instance: ThumbnailModel) {
-    logger.info('Removing %s file %s.', ThumbnailModel.types[instance.type].label, instance.filename)
-
     // Don't block the transaction
-    instance.removeThumbnail()
-            .catch(err => logger.error('Cannot remove thumbnail file %s.', instance.filename, { err }))
+    instance.removeFile()
+      .catch(err => logger.error('Cannot remove thumbnail file %s.', instance.filename, { err }))
   }
 
-  static loadByFilename (filename: string, thumbnailType: ThumbnailType_Type): Promise<MThumbnail> {
-    const query = {
-      where: {
-        filename,
-        type: thumbnailType
-      }
-    }
+  // ---------------------------------------------------------------------------
 
-    return ThumbnailModel.findOne(query)
-  }
-
-  static loadWithVideoByFilename (filename: string, thumbnailType: ThumbnailType_Type): Promise<MThumbnailVideo> {
-    const query = {
-      where: {
-        filename,
-        type: thumbnailType
-      },
-      include: [
-        {
-          model: VideoModel.unscoped(),
-          required: true
-        }
-      ]
-    }
-
-    return ThumbnailModel.findOne(query)
-  }
-
-  static listRemoteOnDisk () {
-    return this.findAll<MThumbnail>({
-      where: {
-        onDisk: true
-      },
-      include: [
-        {
-          attributes: [ 'id' ],
-          model: VideoModel.unscoped(),
-          required: true,
-          where: {
-            remote: true
-          }
-        }
-      ]
+  static getSQLAttributes (tableName: string, aliasPrefix = '') {
+    return buildSQLAttributes({
+      model: this,
+      tableName,
+      aliasPrefix
     })
   }
 
   // ---------------------------------------------------------------------------
 
-  static buildPath (type: ThumbnailType_Type, filename: string) {
-    const directory = ThumbnailModel.types[type].directory
+  static loadByFilename (filename: string): Promise<MThumbnail> {
+    const query = {
+      where: { filename }
+    }
 
-    return join(directory, filename)
+    return ThumbnailModel.findOne(query)
+  }
+
+  static listRemoteCached () {
+    return this.findAll<MThumbnail>({
+      where: {
+        cached: true,
+        fileUrl: {
+          [Op.ne]: null
+        }
+      }
+    })
   }
 
   // ---------------------------------------------------------------------------
 
-  getOriginFileUrl (videoOrPlaylist: MVideo | MVideoPlaylist) {
-    const staticPath = ThumbnailModel.types[this.type].staticPath + this.filename
-
-    // FIXME: typings
-    if ((videoOrPlaylist as MVideo).isOwned()) return WEBSERVER.URL + staticPath
-
-    return this.fileUrl
+  getFSPath () {
+    return join(CONFIG.STORAGE.THUMBNAILS_DIR, this.filename)
   }
 
-  getLocalStaticPath () {
-    return ThumbnailModel.types[this.type].staticPath + this.filename
+  getFSCachedPath () {
+    return join(FILES_CACHE.THUMBNAILS.DIRECTORY, this.filename)
   }
 
-  getPath () {
-    return ThumbnailModel.buildPath(this.type, this.filename)
+  removeFile () {
+    const path = this.cached
+      ? this.getFSCachedPath()
+      : this.getFSPath()
+
+    logger.info('Removing thumbnail file ' + path)
+
+    return remove(path)
   }
 
-  getPreviousPath () {
-    return ThumbnailModel.buildPath(this.type, this.previousThumbnailFilename)
+  getLocalFileUrl () {
+    // Remote files are cached by our instance
+    return WEBSERVER.URL + this.getFileStaticPath()
   }
 
-  removeThumbnail () {
-    return remove(this.getPath())
+  getFileStaticPath () {
+    return LAZY_STATIC_PATHS.THUMBNAILS + this.filename
   }
 
-  removePreviousFilenameIfNeeded () {
-    if (!this.previousThumbnailFilename) return
-
-    const previousPath = this.getPreviousPath()
-    remove(previousPath)
-      .catch(err => logger.error('Cannot remove previous thumbnail file %s.', previousPath, { err }))
-
-    this.previousThumbnailFilename = undefined
-  }
-
-  isOwned () {
+  isLocal () {
     return !this.fileUrl
   }
 
   // ---------------------------------------------------------------------------
 
-  toActivityPubObject (this: MThumbnail, video: MVideo): ActivityIconObject {
+  toFormattedJSON (): Thumbnail {
+    return {
+      height: this.height,
+      width: this.width,
+      aspectRatio: this.aspectRatio,
+      fileUrl: this.getLocalFileUrl()
+    }
+  }
+
+  toActivityPubObject (this: MThumbnail): ActivityIconObject {
     return {
       type: 'Image',
-      url: this.getOriginFileUrl(video),
-      mediaType: 'image/jpeg',
+      url: this.getLocalFileUrl(),
+      mediaType: MIMETYPES.IMAGE.EXT_MIMETYPE[extname(this.filename)],
       width: this.width,
       height: this.height
     }

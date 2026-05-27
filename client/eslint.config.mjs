@@ -150,6 +150,7 @@ export default defineConfig([
       'no-return-assign': 'off',
       '@typescript-eslint/unbound-method': 'off',
       'import/no-named-default': 'off',
+      '@typescript-eslint/prefer-reduce-type-parameter': 'off',
 
       "@typescript-eslint/no-deprecated": [ 'error', {
         allow: [
@@ -177,7 +178,14 @@ export default defineConfig([
       '@typescript-eslint/no-redundant-type-constituents': 'off',
 
       // We use many nested callbacks in our tests
-      'max-nested-callbacks': 'off'
+      'max-nested-callbacks': 'off',
+
+      'no-param-reassign': 'off',
+      'no-negated-condition': 'off',
+      'radix': 'off',
+      'no-plusplus': 'off',
+      '@typescript-eslint/no-unnecessary-type-conversion': 'off',
+      'no-promise-executor-return': 'off'
     },
 
     languageOptions: {

@@ -3,6 +3,7 @@ import {
   RunnerJobUpdatePayload,
   RunnerJobVODWebVideoTranscodingPayload,
   RunnerJobVODWebVideoTranscodingPrivatePayload,
+  VideoResolution,
   VODWebVideoTranscodingSuccess
 } from '@peertube/peertube-models'
 import { buildUUID } from '@peertube/peertube-node-utils'
@@ -10,7 +11,7 @@ import { logger } from '@server/helpers/logger.js'
 import { VideoJobInfoModel } from '@server/models/video/video-job-info.js'
 import { MVideoWithFile } from '@server/types/models/index.js'
 import { MRunnerJob } from '@server/types/models/runners/index.js'
-import { generateRunnerTranscodingAudioInputFileUrl, generateRunnerTranscodingVideoInputFileUrl } from '../runner-urls.js'
+import { generateRunnerTranscodingInputFileUrl } from '../runner-urls.js'
 import { AbstractVODTranscodingJobHandler } from './abstract-vod-transcoding-job-handler.js'
 import { loadRunnerVideo, onVODWebVideoOrAudioMergeTranscodingJob } from './shared/utils.js'
 
@@ -21,12 +22,14 @@ type CreateOptions = {
   fps: number
   priority: number
   deleteInputFileId: number | null
+  canMoveVideoState: boolean
   dependsOnRunnerJob?: MRunnerJob
 }
 
-// eslint-disable-next-line max-len
-export class VODWebVideoTranscodingJobHandler extends AbstractVODTranscodingJobHandler<CreateOptions, RunnerJobUpdatePayload, VODWebVideoTranscodingSuccess> {
-
+// oxlint-disable-next-line max-len
+export class VODWebVideoTranscodingJobHandler
+  extends AbstractVODTranscodingJobHandler<CreateOptions, RunnerJobUpdatePayload, VODWebVideoTranscodingSuccess>
+{
   async create (options: CreateOptions) {
     const { video, resolution, fps, priority, dependsOnRunnerJob } = options
 
@@ -35,10 +38,16 @@ export class VODWebVideoTranscodingJobHandler extends AbstractVODTranscodingJobH
 
     const payload: RunnerJobVODWebVideoTranscodingPayload = {
       input: {
-        videoFileUrl: generateRunnerTranscodingVideoInputFileUrl(jobUUID, video.uuid),
+        videoFileUrl: generateRunnerTranscodingInputFileUrl({
+          jobUUID,
+          videoUUID: video.uuid,
+          type: resolution === VideoResolution.H_NOVIDEO
+            ? 'audio'
+            : 'video'
+        }),
 
         separatedAudioFileUrl: separatedAudioFile
-          ? [ generateRunnerTranscodingAudioInputFileUrl(jobUUID, video.uuid) ]
+          ? [ generateRunnerTranscodingInputFileUrl({ jobUUID, videoUUID: video.uuid, type: 'audio' }) ]
           : []
       },
       output: {
@@ -48,7 +57,7 @@ export class VODWebVideoTranscodingJobHandler extends AbstractVODTranscodingJobH
     }
 
     const privatePayload: RunnerJobVODWebVideoTranscodingPrivatePayload = {
-      ...pick(options, [ 'isNewVideo', 'deleteInputFileId' ]),
+      ...pick(options, [ 'isNewVideo', 'deleteInputFileId', 'canMoveVideoState' ]),
 
       videoUUID: video.uuid
     }
@@ -85,7 +94,9 @@ export class VODWebVideoTranscodingJobHandler extends AbstractVODTranscodingJobH
 
     logger.info(
       'Runner VOD web video transcoding job %s for %s ended.',
-      runnerJob.uuid, video.uuid, this.lTags(video.uuid, runnerJob.uuid)
+      runnerJob.uuid,
+      video.uuid,
+      this.lTags(video.uuid, runnerJob.uuid)
     )
   }
 }

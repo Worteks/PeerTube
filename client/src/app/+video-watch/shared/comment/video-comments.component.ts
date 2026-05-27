@@ -1,4 +1,3 @@
-import { NgFor, NgIf } from '@angular/common'
 import { Component, ElementRef, inject, input, OnChanges, OnDestroy, OnInit, output, SimpleChanges, viewChild } from '@angular/core'
 import { ActivatedRoute } from '@angular/router'
 import { AuthService, ComponentPagination, ConfirmService, hasMoreItems, Notifier, PluginService, User } from '@app/core'
@@ -28,11 +27,9 @@ import { VideoCommentComponent } from './video-comment.component'
     NgbDropdownMenu,
     NgbDropdownButtonItem,
     NgbDropdownItem,
-    NgIf,
     VideoCommentAddComponent,
     InfiniteScrollerDirective,
     VideoCommentComponent,
-    NgFor,
     LoaderComponent
   ]
 })
@@ -142,7 +139,7 @@ export class VideoCommentsComponent implements OnInit, OnChanges, OnDestroy {
         const errorBody = err.body as PeerTubeProblemDocument
         if (highlightThread && errorBody?.code === ServerErrorCode.COMMENT_NOT_ASSOCIATED_TO_VIDEO) return
 
-        this.notifier.error(err.message)
+        this.notifier.handleError(err)
       }
     })
   }
@@ -226,7 +223,7 @@ export class VideoCommentsComponent implements OnInit, OnChanges, OnDestroy {
     const res = await this.confirmService.confirm(message, title)
     if (res === false) return false
 
-    this.videoCommentService.deleteVideoComment(commentToDelete.videoId, commentToDelete.id)
+    this.videoCommentService.deleteComments([ { videoId: commentToDelete.videoId, commentId: commentToDelete.id } ])
       .subscribe({
         next: () => {
           if (this.highlightedThread?.id === commentToDelete.id) {
@@ -239,7 +236,7 @@ export class VideoCommentsComponent implements OnInit, OnChanges, OnDestroy {
           this.softDeleteComment(commentToDelete)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
 
     return true
@@ -275,7 +272,7 @@ export class VideoCommentsComponent implements OnInit, OnChanges, OnDestroy {
           this.notifier.success($localize`Comment approved`)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 

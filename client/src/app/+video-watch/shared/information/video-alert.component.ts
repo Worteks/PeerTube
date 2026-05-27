@@ -1,4 +1,3 @@
-import { NgIf } from '@angular/common'
 import { Component, inject, input } from '@angular/core'
 import { AuthUser } from '@app/core'
 import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
@@ -11,7 +10,7 @@ import { UserRight, VideoPrivacy, VideoState } from '@peertube/peertube-models'
   selector: 'my-video-alert',
   templateUrl: './video-alert.component.html',
   styles: `my-alert { text-align: center }`,
-  imports: [ NgIf, PTDatePipe, AlertComponent ]
+  imports: [ PTDatePipe, AlertComponent ]
 })
 export class VideoAlertComponent {
   readonly user = input<AuthUser>(undefined)
@@ -20,7 +19,7 @@ export class VideoAlertComponent {
 
   private readonly videoStateMessage = inject(VideoStateMessageService)
 
-  canSeeMoreInfo () {
+  canSeeMoreStateInfo () {
     return !!(this.user()?.hasRight(UserRight.UPDATE_ANY_VIDEO))
   }
 
@@ -28,7 +27,18 @@ export class VideoAlertComponent {
     const video = this.video()
     if (!video) return undefined
 
-    return this.videoStateMessage.buildWarn(video.state.id)
+    return this.videoStateMessage.buildWarn({ videoId: video.id, state: video.state.id })
+  }
+
+  getAlertError () {
+    const video = this.video()
+    if (!video) return undefined
+
+    return this.videoStateMessage.buildErr({
+      videoId: video.id,
+      blacklisted: video.blacklisted,
+      blacklistedReason: video.blacklistedReason
+    })
   }
 
   hasVideoScheduledPublication () {
@@ -45,5 +55,12 @@ export class VideoAlertComponent {
 
   isVideoPasswordProtected () {
     return this.video()?.privacy.id === VideoPrivacy.PASSWORD_PROTECTED
+  }
+
+  scheduledLiveDate () {
+    const liveSchedules = this.video()?.liveSchedules
+    if (!liveSchedules || liveSchedules.length === 0) return undefined
+
+    return liveSchedules[0].startAt
   }
 }

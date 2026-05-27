@@ -1,11 +1,10 @@
 import { CommonModule } from '@angular/common'
-import { booleanAttribute, Component, inject, input, OnChanges, output, viewChild } from '@angular/core'
+import { booleanAttribute, Component, input, OnChanges, output, viewChild } from '@angular/core'
 import { RouterLink } from '@angular/router'
-import { ScreenService } from '@app/core'
-import { getAPIUrl } from '@app/helpers'
 import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap'
 import { Video as VideoServerModel, VideoState } from '@peertube/peertube-models'
 import { GlobalIconComponent } from '../shared-icons/global-icon.component'
+import { FromNowPipe } from '../shared-main/date/from-now.pipe'
 import { Video } from '../shared-main/video/video.model'
 
 export type VideoThumbnailInput = Pick<
@@ -16,23 +15,21 @@ export type VideoThumbnailInput = Pick<
   | 'shortUUID'
   | 'isLive'
   | 'state'
-  | 'previewPath'
-  | 'previewUrl'
-  | 'thumbnailPath'
-  | 'thumbnailUrl'
+  | 'thumbnails'
   | 'userHistory'
+  | 'originallyPublishedAt'
+  | 'liveSchedules'
 >
 
 @Component({
   selector: 'my-video-thumbnail',
   styleUrls: [ './video-thumbnail.component.scss' ],
   templateUrl: './video-thumbnail.component.html',
-  imports: [ CommonModule, RouterLink, NgbTooltip, GlobalIconComponent ]
+  imports: [ CommonModule, RouterLink, NgbTooltip, GlobalIconComponent, FromNowPipe ]
 })
 export class VideoThumbnailComponent implements OnChanges {
-  private screenService = inject(ScreenService)
-
   readonly video = input.required<VideoThumbnailInput>()
+  readonly sizes = input.required<string>()
 
   readonly videoRouterLink = input<string | any[]>(undefined)
   readonly queryParams = input<{
@@ -56,6 +53,9 @@ export class VideoThumbnailComponent implements OnChanges {
 
   durationLabel: string
 
+  src: string
+  srcset: string
+
   constructor () {
     this.addToWatchLaterText = $localize`Add to watch later`
     this.removeFromWatchLaterText = $localize`Remove from watch later`
@@ -65,6 +65,15 @@ export class VideoThumbnailComponent implements OnChanges {
     this.durationLabel = this.video().duration
       ? Video.buildDurationLabel(this.video())
       : undefined
+
+    const thumbnails = this.video().thumbnails || []
+    this.src = thumbnails.length > 0
+      ? thumbnails[0].fileUrl
+      : undefined
+
+    this.srcset = thumbnails.filter(t => t.aspectRatio === '16:9')
+      .map(t => `${t.fileUrl} ${t.width}w`)
+      .join(', ')
   }
 
   getWatchIconText () {
@@ -86,15 +95,14 @@ export class VideoThumbnailComponent implements OnChanges {
     return this.video().state?.id === VideoState.LIVE_ENDED
   }
 
-  getImageUrl () {
-    const video = this.video()
-    if (!video) return ''
+  isScheduledLive () {
+    return this.video().state?.id === VideoState.WAITING_FOR_LIVE &&
+      this.video().liveSchedules !== null &&
+      this.video().liveSchedules.length > 0
+  }
 
-    if (this.screenService.isInMobileView()) {
-      return video.previewUrl || getAPIUrl() + video.previewPath
-    }
-
-    return video.thumbnailUrl || getAPIUrl() + video.thumbnailPath
+  scheduledLiveDate () {
+    return new Date(this.video().liveSchedules[0].startAt)
   }
 
   getProgressPercent () {

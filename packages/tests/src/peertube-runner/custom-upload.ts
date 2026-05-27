@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { wait } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, RunnerJobState, RunnerJobVODPayload } from '@peertube/peertube-models'
@@ -23,6 +23,8 @@ describe('Test peertube-runner custom upload', function () {
   let sqlCommand: SQLCommand
   let mockUploadServerUrl: string
   let transcoded: string
+
+  const resolutions = [ 720 ]
 
   const mockUpload = new MockUpload()
 
@@ -84,7 +86,7 @@ describe('Test peertube-runner custom upload', function () {
   })
 
   it('Should upload the file on another endpoint for web video', async function () {
-    await server.config.enableTranscoding({ hls: false, webVideo: true })
+    await server.config.enableTranscoding({ hls: false, webVideo: true, resolutions })
 
     await server.videos.quickUpload({ name: 'video 1' })
     await server.videos.quickUpload({ name: 'video 2' })

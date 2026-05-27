@@ -1,22 +1,25 @@
 import { APP_BASE_HREF, registerLocaleData } from '@angular/common'
-import { provideHttpClient } from '@angular/common/http'
+import { provideHttpClient, withInterceptors } from '@angular/common/http'
 import {
   ApplicationRef,
   enableProdMode,
+  enableProfiling,
   importProvidersFrom,
-  provideZoneChangeDetection,
   inject,
-  provideAppInitializer
+  provideAppInitializer,
+  provideZoneChangeDetection
 } from '@angular/core'
 import { BrowserModule, bootstrapApplication, enableDebugTools } from '@angular/platform-browser'
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations'
 import { RouteReuseStrategy, provideRouter, withInMemoryScrolling, withPreloading } from '@angular/router'
 import { ServiceWorkerModule } from '@angular/service-worker'
+import { PTPrimeTheme } from '@app/core/theme/primeng/primeng-theme'
 import localeOc from '@app/helpers/locales/oc'
 import { getFormProviders } from '@app/shared/shared-forms/shared-form-providers'
+import { languageInterceptor } from '@app/shared/shared-main/http/language-interceptor.service'
 import { NgbModalModule } from '@ng-bootstrap/ng-bootstrap'
-import { LoadingBarModule } from '@ngx-loading-bar/core'
 import { LoadingBarHttpClientModule } from '@ngx-loading-bar/http-client'
+import { providePrimeNG } from 'primeng/config'
 import { ToastModule } from 'primeng/toast'
 import { switchMap } from 'rxjs/operators'
 import { AppComponent } from './app/app.component'
@@ -59,12 +62,14 @@ export function loadConfigFactory (
 
 if (environment.production) {
   enableProdMode()
+} else {
+  enableProfiling()
 }
 
 logger.registerServerSending(environment.apiUrl)
 
-const bootstrap = () =>
-  bootstrapApplication(AppComponent, {
+const bootstrap = () => {
+  return bootstrapApplication(AppComponent, {
     providers: [
       provideZoneChangeDetection({ eventCoalescing: true }),
 
@@ -74,11 +79,12 @@ const bootstrap = () =>
         ServiceWorkerModule.register('ngsw-worker.js', { enabled: environment.production })
       ),
 
-      provideHttpClient(),
+      provideHttpClient(
+        withInterceptors([ languageInterceptor ])
+      ),
 
       importProvidersFrom(
         LoadingBarHttpClientModule,
-        LoadingBarModule,
         ToastModule,
         NgbModalModule
       ),
@@ -108,35 +114,40 @@ const bootstrap = () =>
         const initializerFn = loadConfigFactory(inject(ServerService), inject(PluginService), inject(ThemeService), inject(RedirectService))
 
         return initializerFn()
+      }),
+
+      providePrimeNG({
+        theme: {
+          preset: PTPrimeTheme
+        }
       })
     ]
+  }).then(bootstrapModule => {
+    if (!environment.production) {
+      const applicationRef = bootstrapModule.injector.get(ApplicationRef)
+      const componentRef = applicationRef.components[0]
+
+      // allows to run `ng.profiler.timeChangeDetection();`
+      enableDebugTools(componentRef)
+    }
+
+    return bootstrapModule
+  }).catch(err => {
+    try {
+      logger.error(err)
+    } catch (err2) {
+      console.error('Cannot log error', { err, err2 })
+    }
+
+    // Ensure we display an "incompatible message" on Angular bootstrap error
+    setTimeout(() => {
+      if (document.querySelector('my-app').innerHTML === '') {
+        throw err
+      }
+    }, 1000)
+
+    return null as any
   })
-    .then(bootstrapModule => {
-      if (!environment.production) {
-        const applicationRef = bootstrapModule.injector.get(ApplicationRef)
-        const componentRef = applicationRef.components[0]
-
-        // allows to run `ng.profiler.timeChangeDetection();`
-        enableDebugTools(componentRef)
-      }
-
-      return bootstrapModule
-    })
-    .catch(err => {
-      try {
-        logger.error(err)
-      } catch (err2) {
-        console.error('Cannot log error', { err, err2 })
-      }
-
-      // Ensure we display an "incompatible message" on Angular bootstrap error
-      setTimeout(() => {
-        if (document.querySelector('my-app').innerHTML === '') {
-          throw err
-        }
-      }, 1000)
-
-      return null as any
-    })
+}
 
 bootstrap()

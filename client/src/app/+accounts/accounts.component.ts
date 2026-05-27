@@ -95,7 +95,7 @@ export class AccountsComponent implements OnInit, OnDestroy {
         distinctUntilChanged(),
         switchMap(accountId => this.accountService.getAccount(accountId)),
         tap(account => this.onAccount(account)),
-        switchMap(account => this.videoChannelService.listAccountVideoChannels({ account })),
+        switchMap(account => this.videoChannelService.listAccountChannels({ account })),
         catchError(err =>
           this.restExtractor.redirectTo404IfNotFound(err, 'other', [
             HttpStatusCode.BAD_REQUEST_400,
@@ -108,7 +108,7 @@ export class AccountsComponent implements OnInit, OnDestroy {
           this.videoChannels = videoChannels.data
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
 
     this.links = [
@@ -213,7 +213,7 @@ export class AccountsComponent implements OnInit, OnDestroy {
             this.accountUser = accountUser
           },
 
-          error: err => this.notifier.error(err.message)
+          error: err => this.notifier.handleError(err)
         })
     }
   }

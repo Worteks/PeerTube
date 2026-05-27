@@ -10,6 +10,8 @@ export interface SelectOptionsItem<T = string | number> {
 export interface SelectChannelItem extends SelectOptionsItem {
   id: number // Force number
   name: string
-  avatarPath: string
+  avatarFileUrl: string
   support: string
+
+  editor: boolean
 }

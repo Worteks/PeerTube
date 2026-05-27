@@ -1,26 +1,12 @@
-<h2>
+<h2 class="form-title">
   <my-global-icon iconName="moderation"></my-global-icon>
 
   <ng-container i18n>Moderation</ng-container>
 </h2>
 
-<div [formGroup]="form">
-
+<form [formGroup]="form" id="video-manage-form">
   <div class="form-columns">
     <div>
-      <div class="form-group">
-        <my-select-radio
-          i18n-label label="Comments policy"
-          [items]="commentPolicies"
-          inputId="commentsPolicy"
-          formControlName="commentsPolicy"
-        >
-          <div class="form-group-description" i18n>
-            You can require comments to be approved depending on <a routerLink="/my-account/auto-tag-policies" target="_blank">your auto-tags policies</a>
-          </div>
-        </my-select-radio>
-      </div>
-
       <my-peertube-checkbox inputName="nsfw" formControlName="nsfw">
         <ng-template ptTemplate="label">
           <ng-container i18n>Your video contains sensitive content</ng-container>
@@ -31,27 +17,71 @@
             <label i18n for="nsfwSummary">Describe what makes your content sensitive</label>
             <input type="text" id="nsfwSummary" class="form-control" formControlName="nsfwSummary" [ngClass]="{ 'input-error': formErrors.nsfwSummary }" />
 
-            <div *ngIf="formErrors.nsfwSummary" class="form-error" role="alert">{{ formErrors.nsfwSummary }}</div>
+            @if (formErrors.nsfwSummary) {
+              <div class="form-error" role="alert">{{ formErrors.nsfwSummary }}</div>
+            }
           </div>
 
-          <div class="label" i18n>Help viewers to identify your sensitive content</div>
+          <div class="label" i18n>Help viewers identify your sensitive content</div>
 
           <my-peertube-checkbox inputName="nsfwFlagViolent" formControlName="nsfwFlagViolent">
             <ng-template ptTemplate="label">
-              <ng-container i18n>Some images may be violent</ng-container>
+              <ng-container i18n>Potentially violent content</ng-container>
             </ng-template>
           </my-peertube-checkbox>
 
           <my-peertube-checkbox inputName="nsfwFlagSex" formControlName="nsfwFlagSex">
             <ng-template ptTemplate="label">
-              <ng-container i18n>Content may be perceived as sexually explicit material</ng-container>
+              <ng-container i18n>Potentially sexually explicit content</ng-container>
             </ng-template>
           </my-peertube-checkbox>
-
-
-       </ng-container>
-
+        </ng-container>
       </my-peertube-checkbox>
+
+      <div class="form-group">
+        <my-select-radio i18n-label label="Comments policy" [items]="commentPolicies" inputId="commentsPolicy" formControlName="commentsPolicy">
+          <div class="form-group-description" i18n>
+            You can require comments to be approved depending on <a routerLink="/my-account/auto-tag-policies" target="_blank">your auto-tags policies</a>
+          </div>
+        </my-select-radio>
+      </div>
+    </div>
+
+    <div>
+      <div class="form-group">
+        <my-peertube-checkbox inputName="videoPrivacyEmbedEnableAllowlist" formControlName="videoPrivacyEmbedEnableAllowlist">
+          <ng-template ptTemplate="label">
+            <ng-container i18n>Restrict embed to the following domains</ng-container>
+          </ng-template>
+
+          <ng-container ngProjectAs="extra">
+            <div class="form-group">
+              <label i18n for="videoPrivacyEmbedAllowlistDomains">Allowed domains</label>
+              <div class="form-group-description">1 domain (without "https://") per line</div>
+
+              <textarea
+                placeholder="example.com"
+                formControlName="videoPrivacyEmbedAllowlistDomains"
+                type="text"
+                id="videoPrivacyEmbedAllowlistDomains"
+                name="videoPrivacyEmbedAllowlistDomains"
+                class="form-control"
+                [ngClass]="{ 'input-error': formErrors['videoPrivacyEmbedAllowlistDomains'] }"
+              ></textarea>
+
+              @if (formErrors.videoPrivacyEmbedAllowlistDomains) {
+                <div class="form-error" role="alert">
+                  {{ formErrors.videoPrivacyEmbedAllowlistDomains }}
+
+                  @if (form.controls['videoPrivacyEmbedAllowlistDomains'].errors.validHosts) {
+                    <div>{{ form.controls['videoPrivacyEmbedAllowlistDomains'].errors.validHosts.value }}</div>
+                  }
+                </div>
+              }
+            </div>
+          </ng-container>
+        </my-peertube-checkbox>
+      </div>
     </div>
   </div>
-</div>
+</form>

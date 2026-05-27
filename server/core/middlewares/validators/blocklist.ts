@@ -1,9 +1,9 @@
+import { HttpStatusCode } from '@peertube/peertube-models'
+import { areValidActorHandles } from '@server/helpers/custom-validators/activitypub/actor.js'
+import { toArray } from '@server/helpers/custom-validators/misc.js'
+import { getServerActor } from '@server/models/application/application.js'
 import express from 'express'
 import { body, param, query } from 'express-validator'
-import { areValidActorHandles } from '@server/helpers/custom-validators/activitypub/actor.js'
-import { getServerActor } from '@server/models/application/application.js'
-import { arrayify } from '@peertube/peertube-core-utils'
-import { HttpStatusCode } from '@peertube/peertube-models'
 import { isEachUniqueHostValid, isHostValid } from '../../helpers/custom-validators/servers.js'
 import { WEBSERVER } from '../../initializers/constants.js'
 import { AccountBlocklistModel } from '../../models/account/account-blocklist.js'
@@ -17,7 +17,7 @@ const blockAccountValidator = [
 
   async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (areValidationErrors(req, res)) return
-    if (!await doesAccountHandleExist({ handle: req.body.accountName, res, checkIsLocal: false, checkManage: false })) return
+    if (!await doesAccountHandleExist({ handle: req.body.accountName, req, res, checkIsLocal: false, checkCanManage: false })) return
 
     const user = res.locals.oauth.token.User
     const accountToBlock = res.locals.account
@@ -25,7 +25,7 @@ const blockAccountValidator = [
     if (user.Account.id === accountToBlock.id) {
       res.fail({
         status: HttpStatusCode.CONFLICT_409,
-        message: 'You cannot block yourself.'
+        message: req.t('You cannot block yourself.')
       })
       return
     }
@@ -40,7 +40,7 @@ const unblockAccountByAccountValidator = [
 
   async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (areValidationErrors(req, res)) return
-    if (!await doesAccountHandleExist({ handle: req.params.accountName, res, checkIsLocal: false, checkManage: false })) return
+    if (!await doesAccountHandleExist({ handle: req.params.accountName, req, res, checkIsLocal: false, checkCanManage: false })) return
 
     const user = res.locals.oauth.token.User
     const targetAccount = res.locals.account
@@ -56,7 +56,7 @@ const unblockAccountByServerValidator = [
 
   async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (areValidationErrors(req, res)) return
-    if (!await doesAccountHandleExist({ handle: req.params.accountName, res, checkIsLocal: false, checkManage: false })) return
+    if (!await doesAccountHandleExist({ handle: req.params.accountName, req, res, checkIsLocal: false, checkCanManage: false })) return
 
     const serverActor = await getServerActor()
     const targetAccount = res.locals.account
@@ -78,7 +78,7 @@ const blockServerValidator = [
     if (host === WEBSERVER.HOST) {
       return res.fail({
         status: HttpStatusCode.CONFLICT_409,
-        message: 'You cannot block your own server.'
+        message: req.t('You cannot block your own server.')
       })
     }
 
@@ -121,12 +121,12 @@ const unblockServerByServerValidator = [
 const blocklistStatusValidator = [
   query('hosts')
     .optional()
-    .customSanitizer(arrayify)
+    .customSanitizer(toArray)
     .custom(isEachUniqueHostValid).withMessage('Should have a valid hosts array'),
 
   query('accounts')
     .optional()
-    .customSanitizer(arrayify)
+    .customSanitizer(toArray)
     .custom(areValidActorHandles).withMessage('Should have a valid accounts array'),
 
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -139,13 +139,13 @@ const blocklistStatusValidator = [
 // ---------------------------------------------------------------------------
 
 export {
-  blockServerValidator,
   blockAccountValidator,
+  blocklistStatusValidator,
+  blockServerValidator,
   unblockAccountByAccountValidator,
-  unblockServerByAccountValidator,
   unblockAccountByServerValidator,
-  unblockServerByServerValidator,
-  blocklistStatusValidator
+  unblockServerByAccountValidator,
+  unblockServerByServerValidator
 }
 
 // ---------------------------------------------------------------------------

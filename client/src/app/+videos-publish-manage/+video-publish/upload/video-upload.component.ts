@@ -1,18 +1,17 @@
-import { NgIf } from '@angular/common'
 import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, inject, input, output, viewChild } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
-import { ActivatedRoute, Router } from '@angular/router'
+import { ActivatedRoute } from '@angular/router'
 import { VideoEdit } from '@app/+videos-publish-manage/shared-manage/common/video-edit.model'
 import { VideoUploadService } from '@app/+videos-publish-manage/shared-manage/common/video-upload.service'
 import { VideoManageController } from '@app/+videos-publish-manage/shared-manage/video-manage-controller.service'
-import { CanComponentDeactivate, CanDeactivateGuard, HooksService, MetaService, Notifier, ServerService } from '@app/core'
+import { AuthService, CanComponentDeactivate, HooksService, MetaService, Notifier, ServerService } from '@app/core'
 import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap'
 import { UserVideoQuota, VideoPrivacyType } from '@peertube/peertube-models'
 import debug from 'debug'
 import { truncate } from 'lodash-es'
 import { Subscription } from 'rxjs'
-import { SelectChannelItem } from 'src/types'
-import { PreviewUploadComponent } from '../../../shared/shared-forms/preview-upload.component'
+import { SelectChannelItem } from '@pt-types'
+import { ImageInputComponent } from '../../../shared/shared-forms/image-input.component'
 import { SelectChannelComponent } from '../../../shared/shared-forms/select/select-channel.component'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 import { ButtonComponent } from '../../../shared/shared-main/buttons/button.component'
@@ -29,13 +28,12 @@ const debugLogger = debug('peertube:video-publish')
     './video-upload.component.scss'
   ],
   imports: [
-    NgIf,
     DragDropDirective,
     GlobalIconComponent,
     NgbTooltip,
     SelectChannelComponent,
     FormsModule,
-    PreviewUploadComponent,
+    ImageInputComponent,
     ButtonComponent,
     ReactiveFormsModule,
     VideoManageContainerComponent
@@ -43,14 +41,13 @@ const debugLogger = debug('peertube:video-publish')
 })
 export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, CanComponentDeactivate {
   private notifier = inject(Notifier)
+  private authService = inject(AuthService)
   private serverService = inject(ServerService)
   private hooks = inject(HooksService)
   private metaService = inject(MetaService)
   private route = inject(ActivatedRoute)
   private videoUploadService = inject(VideoUploadService)
   private manageController = inject(VideoManageController)
-  private router = inject(Router)
-  private canDeactivateGuard = inject(CanDeactivateGuard)
 
   readonly userChannels = input.required<SelectChannelItem[]>()
   readonly userQuota = input.required<UserVideoQuota>()
@@ -61,7 +58,7 @@ export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, C
   readonly videoFileInput = viewChild<ElementRef<HTMLInputElement>>('videoFileInput')
 
   uploadingAudioFile = false
-  audioPreviewFile: File
+  audioThumbnailFile: File
 
   firstStep = true
   firstStepChannelId: number
@@ -74,6 +71,8 @@ export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, C
   ngOnInit () {
     this.uploadEventsSubscription = this.manageController.getUploadEventsObs()
       .subscribe(state => {
+        this.updateTitle()
+
         if (state.status === 'cancelled') {
           debugLogger('Upload cancelled', state)
 
@@ -94,8 +93,6 @@ export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, C
           this.manageController.silentRedirectOnManage(shortUUID, this.route)
           return
         }
-
-        this.updateTitle()
       })
 
     this.firstStepChannelId = this.userChannels()[0].id
@@ -167,10 +164,11 @@ export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, C
     this.firstStep = true
     this.videoEdit = undefined
     this.uploadingAudioFile = false
+    this.audioThumbnailFile = undefined
   }
 
   uploadAudio () {
-    this.uploadFile(this.getInputVideoFile(), this.audioPreviewFile)
+    this.uploadFile(this.getInputVideoFile(), this.audioThumbnailFile)
   }
 
   getAudioUploadLabel () {
@@ -208,18 +206,19 @@ export class VideoUploadComponent implements OnInit, OnDestroy, AfterViewInit, C
     return this.videoFileInput().nativeElement.files[0]
   }
 
-  private uploadFile (file: File, previewfile?: File) {
+  private uploadFile (file: File, thumbnailfile?: File) {
     const serverConfig = this.serverService.getHTMLConfig()
 
     this.videoEdit = VideoEdit.createFromUpload(serverConfig, {
       name: this.buildVideoFilename(file.name),
       channelId: this.firstStepChannelId,
-      support: this.userChannels().find(c => c.id === this.firstStepChannelId).support ?? ''
+      support: this.userChannels().find(c => c.id === this.firstStepChannelId).support ?? '',
+      user: this.authService.getUser()
     })
 
     this.manageController.setConfig({ manageType: 'upload', serverConfig: this.serverService.getHTMLConfig() })
     this.manageController.setVideoEdit(this.videoEdit)
-    this.manageController.uploadNewVideo({ privacy: this.highestPrivacy(), file, previewfile })
+    this.manageController.uploadNewVideo({ privacy: this.highestPrivacy(), file, thumbnailfile })
     this.manageController.silentRedirectOnUploading(this.route)
 
     this.firstStep = false

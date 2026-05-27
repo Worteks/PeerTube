@@ -76,8 +76,8 @@ export class MyAccountPage {
     await passwordInput.setValue(password)
 
     const submit = $('my-account-change-email input[type=submit]')
-    await submit.waitForClickable()
     await submit.scrollIntoView({ block: 'center' }) // Avoid issues with fixed header
+    await submit.waitForClickable()
     await submit.click()
   }
 
@@ -185,7 +185,7 @@ export class MyAccountPage {
     const playlist = () => {
       return $$('my-video-playlist-miniature')
         .filter(async e => {
-          const t = await e.$('.miniature-name').getText()
+          const t = await e.$('img').getAttribute('aria-label')
 
           return t.includes(name)
         })

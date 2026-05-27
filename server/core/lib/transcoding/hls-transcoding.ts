@@ -1,8 +1,8 @@
 import { pick } from '@peertube/peertube-core-utils'
-import { getVideoStreamDuration, HLSFromTSTranscodeOptions, HLSTranscodeOptions } from '@peertube/peertube-ffmpeg'
+import { canCopyForHLS, getVideoStreamDuration, HLSFromTSTranscodeOptions, HLSTranscodeOptions } from '@peertube/peertube-ffmpeg'
 import { retryTransactionWrapper } from '@server/helpers/database-utils.js'
-import { createTorrentAndSetInfoHash } from '@server/helpers/webtorrent.js'
 import { sequelizeTypescript } from '@server/initializers/database.js'
+import { createTorrentAndSetInfoHash } from '@server/lib/webtorrent.js'
 import { MVideo } from '@server/types/models/index.js'
 import { MutexInterface } from 'async-mutex'
 import { Job } from 'bullmq'
@@ -13,10 +13,10 @@ import { VideoFileModel } from '../../models/video/video-file.js'
 import { VideoStreamingPlaylistModel } from '../../models/video/video-streaming-playlist.js'
 import { renameVideoFileInPlaylist, updateM3U8AndShaPlaylist } from '../hls.js'
 import { generateHLSVideoFilename, getHLSResolutionPlaylistFilename } from '../paths.js'
+import { createAllCaptionPlaylistsOnFSIfNeeded } from '../video-captions.js'
 import { buildNewFile } from '../video-file.js'
 import { VideoPathManager } from '../video-path-manager.js'
 import { buildFFmpegVOD } from './shared/index.js'
-import { createAllCaptionPlaylistsOnFSIfNeeded } from '../video-captions.js'
 
 // Concat TS segments from a live video to a fragmented mp4 HLS playlist
 export async function generateHlsPlaylistResolutionFromTS (options: {
@@ -26,13 +26,14 @@ export async function generateHlsPlaylistResolutionFromTS (options: {
   fps: number
   isAAC: boolean
   inputFileMutexReleaser: MutexInterface.Releaser
+  preventInputFileLocking?: boolean
 }) {
   return generateHlsPlaylistCommon({
     type: 'hls-from-ts' as 'hls-from-ts',
 
     videoInputPath: options.concatenatedTsFilePath,
 
-    ...pick(options, [ 'video', 'resolution', 'fps', 'inputFileMutexReleaser', 'isAAC' ])
+    ...pick(options, [ 'video', 'resolution', 'fps', 'inputFileMutexReleaser', 'preventInputFileLocking', 'isAAC' ])
   })
 }
 
@@ -45,7 +46,6 @@ export function generateHlsPlaylistResolution (options: {
 
   resolution: number
   fps: number
-  copyCodecs: boolean
   inputFileMutexReleaser: MutexInterface.Releaser
   separatedAudio: boolean
   job?: Job
@@ -59,7 +59,6 @@ export function generateHlsPlaylistResolution (options: {
       'video',
       'resolution',
       'fps',
-      'copyCodecs',
       'separatedAudio',
       'inputFileMutexReleaser',
       'job'
@@ -71,9 +70,9 @@ export async function onHLSVideoFileTranscoding (options: {
   video: MVideo
   videoOutputPath: string
   m3u8OutputPath: string
-  filesLockedInParent?: boolean // default false
+  preventInputFileLocking?: boolean
 }) {
-  const { video, videoOutputPath, m3u8OutputPath, filesLockedInParent = false } = options
+  const { video, videoOutputPath, m3u8OutputPath, preventInputFileLocking } = options
 
   // Create or update the playlist
   const { playlist, generated: playlistGenerated } = await retryTransactionWrapper(() => {
@@ -85,9 +84,9 @@ export async function onHLSVideoFileTranscoding (options: {
   const newVideoFile = await buildNewFile({ mode: 'hls', path: videoOutputPath })
   newVideoFile.videoStreamingPlaylistId = playlist.id
 
-  const mutexReleaser = !filesLockedInParent
-    ? await VideoPathManager.Instance.lockFiles(video.uuid)
-    : null
+  const mutexReleaser = preventInputFileLocking === true
+    ? null
+    : await VideoPathManager.Instance.lockFiles(video.uuid)
 
   try {
     await video.reload()
@@ -155,10 +154,10 @@ async function generateHlsPlaylistCommon (options: {
   fps: number
 
   inputFileMutexReleaser: MutexInterface.Releaser
+  preventInputFileLocking?: boolean
 
   separatedAudio?: boolean
 
-  copyCodecs?: boolean
   isAAC?: boolean
 
   job?: Job
@@ -170,11 +169,11 @@ async function generateHlsPlaylistCommon (options: {
     separatedAudioInputPath,
     resolution,
     fps,
-    copyCodecs,
     separatedAudio,
     isAAC,
     job,
-    inputFileMutexReleaser
+    inputFileMutexReleaser,
+    preventInputFileLocking
   } = options
 
   const transcodeDirectory = CONFIG.STORAGE.TMP_DIR
@@ -198,7 +197,9 @@ async function generateHlsPlaylistCommon (options: {
 
     resolution,
     fps,
-    copyCodecs,
+
+    copyCodecs: !separatedAudioInputPath && await canCopyForHLS({ fps, resolution, path: videoInputPath }),
+
     separatedAudio,
 
     isAAC,
@@ -212,10 +213,13 @@ async function generateHlsPlaylistCommon (options: {
 
   await buildFFmpegVOD(job).transcode(transcodeOptions)
 
+  // Ensure the mutex is released if the ffmpeg command failed and did not release it
+  if (inputFileMutexReleaser) inputFileMutexReleaser()
+
   await onHLSVideoFileTranscoding({
     video,
     videoOutputPath,
-    m3u8OutputPath,
-    filesLockedInParent: !inputFileMutexReleaser
+    preventInputFileLocking,
+    m3u8OutputPath
   })
 }

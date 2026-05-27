@@ -16,27 +16,23 @@ Follow the steps of the [dependencies guide](/support/doc/dependencies.md).
 
 Create a `peertube` user with `/var/www/peertube` home:
 
-```bash
-sudo useradd -m -d /var/www/peertube -s /usr/sbin/nologin -p peertube peertube
+::: code-group
+
+```bash [GNU/Linux]
+sudo useradd -m -d /var/www/peertube -s /usr/sbin/nologin peertube
 ```
 
-Set its password:
-```bash
-sudo passwd peertube
+```bash [FreeBSD]
+sudo pw useradd -n peertube -d /var/www/peertube -s /usr/sbin/nologin -m
 ```
+
+:::
 
 Ensure the peertube root directory is traversable by nginx:
 
 ```bash
-ls -ld /var/www/peertube # Should be drwxr-xr-x
+sudo chmod 755 /var/www/peertube
 ```
-
-**On FreeBSD**
-
-```bash
-sudo pw useradd -n peertube -d /var/www/peertube -s /usr/sbin/nologin -m
-```
-or use `adduser` to create it interactively.
 
 ### :card_file_box: Database
 
@@ -91,11 +87,23 @@ sudo -u peertube unzip -q peertube-${VERSION}.zip && sudo -u peertube rm peertub
 
 Install Peertube:
 
-```bash
+::: code-group
+
+```bash [GNU/Linux]
 cd /var/www/peertube
 sudo -u peertube ln -s versions/peertube-${VERSION} ./peertube-latest
 cd ./peertube-latest && sudo -H -u peertube npm run install-node-dependencies -- --production
 ```
+
+```bash [FreeBSD]
+cd /var/www/peertube
+sudo -u peertube ln -s versions/peertube-${VERSION} ./peertube-latest
+cd ./peertube-latest && sudo -H -u peertube npm run install-node-dependencies -- --production
+sudo -u peertube pnpm add --workspace-root --no-lockfile --prod node-addon-api node-gyp
+sudo -u peertube SHARP_FORCE_GLOBAL_LIBVIPS=1 npm explore sharp -- npm run build
+```
+
+:::
 
 ### :wrench: PeerTube configuration
 
@@ -278,7 +286,7 @@ The administrator username is `root` and the password is automatically generated
 logs (path defined in `production.yaml`). You can also set another password with:
 
 ```bash
-cd /var/www/peertube/peertube-latest && NODE_CONFIG_DIR=/var/www/peertube/config NODE_ENV=production npm run reset-password -- -u root
+cd /var/www/peertube/peertube-latest && sudo -u peertube NODE_CONFIG_DIR=/var/www/peertube/config NODE_ENV=production npm run reset-password -- -u root
 ```
 
 Alternatively you can set the environment variable `PT_INITIAL_ROOT_PASSWORD`,
@@ -299,12 +307,29 @@ Now your instance is up you can:
 
 Run the upgrade script (the password it asks is PeerTube's database user password):
 
-```bash
+::: code-group
+
+```bash [GNU/Linux]
 cd /var/www/peertube/peertube-latest/scripts && sudo -H -u peertube ./upgrade.sh
+```
+
+```bash [FreeBSD]
+cd /var/www/peertube/peertube-latest/scripts && sudo -H -u peertube ./upgrade.sh
+sudo -u peertube pnpm add --workspace-root --no-lockfile --prod node-addon-api node-gyp
+sudo -u peertube SHARP_FORCE_GLOBAL_LIBVIPS=1 npm explore sharp -- npm run build
+```
+
+:::
+
+If you have `git` installed on your system, the upgrade will create a `production.yaml.new` file with differences marked as merge conflicts.
+Review this file and replace your existing `production.yaml` with it before restarting.
+
+```bash
+# Make sure you first updated your configuration per the note above
 sudo systemctl restart peertube # Or use your OS command to restart PeerTube if you don't use systemd
 ```
 
-You may want to run `sudo -u peertube yarn cache clean` after several upgrades to free up disk space.
+You may want to run `sudo -u peertube pnpm store prune` after several upgrades to free up disk space.
 
 <details>
 <summary><strong>Prefer manual upgrade?</strong></summary>
@@ -357,11 +382,18 @@ cd /var/www/peertube && \
 
 ### Update PeerTube configuration
 
-Check for configuration changes, and report them in your `config/production.yaml` file:
+If your system has `git` installed, the auto upgrade script should have created a `config/production.yaml.new` file that merges your current configuration file with the new configuration keys introduced by the new PeerTube version.
+
+Review the file, check and fix any potential conflicts:
 
 ```bash
-cd /var/www/peertube/versions
-diff -u "$(ls -t | head -2 | tail -1)/config/production.yaml.example" "$(ls -t | head -1)/config/production.yaml.example"
+cd /var/www/peertube && sudo -u peertube diff config/production.yaml config/production.yaml.new
+```
+
+Then replace your current configuration file by the new one:
+
+```bash
+cd /var/www/peertube && sudo -u peertube cp config/production.yaml.new config/production.yaml
 ```
 
 ### Update nginx configuration

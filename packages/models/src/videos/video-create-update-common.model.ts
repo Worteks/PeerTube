@@ -12,8 +12,6 @@ export interface VideoCreateUpdateCommon {
   privacy?: VideoPrivacyType
   tags?: string[]
 
-  // TODO: remove, deprecated in 6.2
-  commentsEnabled?: boolean
   commentsPolicy?: VideoCommentPolicyType
 
   downloadEnabled?: boolean
@@ -24,8 +22,11 @@ export interface VideoCreateUpdateCommon {
 
   waitTranscoding?: boolean
   channelId?: number
+
   thumbnailfile?: Blob
+  // TODO: remove in v10, deprecated in 8.1
   previewfile?: Blob
+
   scheduleUpdate?: VideoScheduleUpdate
   originallyPublishedAt?: Date | string
   videoPasswords?: string[]

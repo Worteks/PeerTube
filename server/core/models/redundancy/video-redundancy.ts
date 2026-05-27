@@ -1,6 +1,7 @@
 import {
   CacheFileObject,
   RedundancyInformation,
+  VideoInclude,
   VideoPrivacy,
   VideoRedundanciesTarget,
   VideoRedundancy,
@@ -11,7 +12,7 @@ import { isTestInstance } from '@peertube/peertube-node-utils'
 import { getServerActor } from '@server/models/application/application.js'
 import { MActor, MVideoForRedundancyAPI, MVideoRedundancy, MVideoRedundancyAP, MVideoRedundancyVideo } from '@server/types/models/index.js'
 import sample from 'lodash-es/sample.js'
-import { literal, Op, QueryTypes, Transaction, WhereOptions } from 'sequelize'
+import { literal, Op, QueryTypes, Transaction } from 'sequelize'
 import {
   AllowNull,
   BeforeDestroy,
@@ -31,12 +32,12 @@ import { CONFIG } from '../../initializers/config.js'
 import { CONSTRAINTS_FIELDS } from '../../initializers/constants.js'
 import { ActorModel } from '../actor/actor.js'
 import { ServerModel } from '../server/server.js'
-import { getSort, getVideoSort, parseAggregateResult, SequelizeModel, throwIfNotValid } from '../shared/index.js'
+import { getVideoSort, parseAggregateResult, SequelizeModel, throwIfNotValid } from '../shared/index.js'
 import { ScheduleVideoUpdateModel } from '../video/schedule-video-update.js'
 import { VideoChannelModel } from '../video/video-channel.js'
-import { VideoFileModel } from '../video/video-file.js'
 import { VideoStreamingPlaylistModel } from '../video/video-streaming-playlist.js'
 import { VideoModel } from '../video/video.js'
+import { getAllPrivacies } from '@peertube/peertube-core-utils'
 
 export enum ScopeNames {
   WITH_VIDEO = 'WITH_VIDEO'
@@ -78,31 +79,31 @@ export enum ScopeNames {
 })
 export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
   @CreatedAt
-  createdAt: Date
+  declare createdAt: Date
 
   @UpdatedAt
-  updatedAt: Date
+  declare updatedAt: Date
 
   @AllowNull(true)
   @Column
-  expiresOn: Date
+  declare expiresOn: Date
 
   @AllowNull(false)
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.VIDEOS_REDUNDANCY.URL.max))
-  fileUrl: string
+  declare fileUrl: string
 
   @AllowNull(false)
   @Is('VideoRedundancyUrl', value => throwIfNotValid(value, isActivityPubUrlValid, 'url'))
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.VIDEOS_REDUNDANCY.URL.max))
-  url: string
+  declare url: string
 
   @AllowNull(true)
   @Column
-  strategy: string // Only used by us
+  declare strategy: string // Only used by us
 
   @ForeignKey(() => VideoStreamingPlaylistModel)
   @Column
-  videoStreamingPlaylistId: number
+  declare videoStreamingPlaylistId: number
 
   @BelongsTo(() => VideoStreamingPlaylistModel, {
     foreignKey: {
@@ -110,11 +111,11 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
     },
     onDelete: 'cascade'
   })
-  VideoStreamingPlaylist: Awaited<VideoStreamingPlaylistModel>
+  declare VideoStreamingPlaylist: Awaited<VideoStreamingPlaylistModel>
 
   @ForeignKey(() => ActorModel)
   @Column
-  actorId: number
+  declare actorId: number
 
   @BelongsTo(() => ActorModel, {
     foreignKey: {
@@ -122,11 +123,11 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
     },
     onDelete: 'cascade'
   })
-  Actor: Awaited<ActorModel>
+  declare Actor: Awaited<ActorModel>
 
   @BeforeDestroy
   static async removeFile (instance: VideoRedundancyModel) {
-    if (!instance.isOwned()) return
+    if (!instance.isLocal()) return
 
     const videoStreamingPlaylist = await VideoStreamingPlaylistModel.loadWithVideo(instance.videoStreamingPlaylistId)
 
@@ -443,7 +444,7 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
     return VideoRedundancyModel.findAll(query)
   }
 
-  static listForApi (options: {
+  static async listForApi (options: {
     start: number
     count: number
     sort: string
@@ -451,63 +452,30 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
     strategy?: string
   }) {
     const { start, count, sort, target, strategy } = options
-    const redundancyWhere: WhereOptions = {}
-    const videosWhere: WhereOptions = {}
 
-    if (target === 'my-videos') {
-      Object.assign(videosWhere, { remote: false })
-    } else if (target === 'remote-videos') {
-      Object.assign(videosWhere, { remote: true })
-      Object.assign(redundancyWhere, { strategy: { [Op.ne]: null } })
-    }
+    return VideoModel.listForApi({
+      start,
+      count,
+      sort,
+      nsfw: null,
+      displayOnlyForFollower: null,
 
-    if (strategy) {
-      Object.assign(redundancyWhere, { strategy })
-    }
+      include: VideoInclude.FILES | VideoInclude.BLACKLISTED | VideoInclude.NOT_PUBLISHED_STATE | VideoInclude.BLOCKED_OWNER,
+      privacyOneOf: getAllPrivacies(),
+      skipPrivateIncludeCheck: true,
 
-    // /!\ On video model /!\
-    const findOptions = {
-      offset: start,
-      limit: count,
-      order: getSort(sort),
-      where: videosWhere,
-      include: [
-        {
-          required: true,
-          model: VideoStreamingPlaylistModel.unscoped(),
-          include: [
-            {
-              model: VideoRedundancyModel.unscoped(),
-              required: true,
-              where: redundancyWhere
-            },
-            {
-              model: VideoFileModel,
-              required: true
-            }
-          ]
-        }
-      ]
-    }
+      isLocal: target === 'my-videos',
 
-    return Promise.all([
-      VideoModel.findAll(findOptions),
-
-      VideoModel.count({
-        where: {
-          ...videosWhere,
-
-          id: {
-            [Op.in]: literal(
-              '(' +
-                'SELECT "videoId" FROM "videoStreamingPlaylist" ' +
-                'INNER JOIN "videoRedundancy" ON "videoRedundancy"."videoStreamingPlaylistId" = "videoStreamingPlaylist".id' +
-                ')'
-            )
-          }
-        }
-      })
-    ]).then(([ data, total ]) => ({ total, data }))
+      redundancyStrategy: strategy,
+      localRedundancy: target === 'remote-videos'
+        ? true
+        : undefined,
+      includeRedundancy: true,
+      hasRedundancy: true,
+      tableAttributes: {
+        fullRedundancy: true
+      }
+    })
   }
 
   static async getStats (strategy: VideoRedundancyStrategyWithManual) {
@@ -564,7 +532,6 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
       uuid: video.uuid,
 
       redundancies: {
-        files: [],
         streamingPlaylists: streamingPlaylistsRedundancies
       }
     }
@@ -578,7 +545,7 @@ export class VideoRedundancyModel extends SequelizeModel<VideoRedundancyModel> {
     return this.getVideo()?.uuid
   }
 
-  isOwned () {
+  isLocal () {
     return !!this.strategy
   }
 

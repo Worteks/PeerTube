@@ -1,4 +1,4 @@
-import { NgClass, NgIf } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { Component, OnInit, inject } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { SignupService } from '@app/+signup/shared/signup.service'
@@ -12,7 +12,7 @@ import { forkJoin } from 'rxjs'
   selector: 'my-verify-new-account-ask-send-email',
   templateUrl: './verify-new-account-ask-send-email.component.html',
   styleUrls: [ './verify-new-account-ask-send-email.component.scss' ],
-  imports: [ NgIf, FormsModule, ReactiveFormsModule, NgClass ]
+  imports: [ FormsModule, ReactiveFormsModule, NgClass ]
 })
 export class VerifyNewAccountAskSendEmailComponent extends FormReactive implements OnInit {
   protected formReactiveService = inject(FormReactiveService)
@@ -51,7 +51,7 @@ export class VerifyNewAccountAskSendEmailComponent extends FormReactive implemen
         this.redirectService.redirectToHomepage()
       },
 
-      error: err => this.notifier.error(err.message)
+      error: err => this.notifier.handleError(err)
     })
   }
 }

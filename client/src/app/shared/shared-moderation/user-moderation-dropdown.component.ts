@@ -1,6 +1,5 @@
-import { NgIf } from '@angular/common'
 import { Component, OnChanges, OnInit, inject, input, output, viewChild } from '@angular/core'
-import { AuthService, ConfirmService, HooksService, Notifier, ServerService } from '@app/core'
+import { AuthService, ConfirmService, HooksService, Notifier, ServerService, UserService } from '@app/core'
 import { BulkRemoveCommentsOfBody, User, UserRight } from '@peertube/peertube-models'
 import { Account } from '../shared-main/account/account.model'
 import { ActionDropdownComponent, DropdownAction } from '../shared-main/buttons/action-dropdown.component'
@@ -23,7 +22,7 @@ export type UserModerationDisplayType = {
 @Component({
   selector: 'my-user-moderation-dropdown',
   templateUrl: './user-moderation-dropdown.component.html',
-  imports: [ NgIf, UserBanModalComponent, ActionDropdownComponent ]
+  imports: [ UserBanModalComponent, ActionDropdownComponent ]
 })
 export class UserModerationDropdownComponent implements OnInit, OnChanges {
   private authService = inject(AuthService)
@@ -33,6 +32,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
   private userAdminService = inject(UserAdminService)
   private blocklistService = inject(BlocklistService)
   private bulkService = inject(BulkService)
+  private userService = inject(UserService)
   private hooks = inject(HooksService)
 
   readonly userBanModal = viewChild<UserBanModalComponent>('userBanModal')
@@ -81,7 +81,9 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
     this.userBanModal().openModal(user)
   }
 
-  onUserBanned () {
+  onUserBanned ({ muted }: { muted: boolean }) {
+    if (muted) this.account().mutedByInstance = true
+
     this.userChanged.emit()
   }
 
@@ -96,7 +98,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -119,7 +121,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userDeleted.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -131,7 +133,18 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
+      })
+  }
+
+  resendVerificationEmail (user: User) {
+    this.userService.askSendVerifyEmail(user.email)
+      .subscribe({
+        next: () => {
+          this.notifier.success($localize`Verification email sent to ${user.email}`)
+        },
+
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -145,7 +158,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -159,7 +172,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -173,7 +186,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -187,7 +200,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -201,7 +214,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -215,7 +228,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -229,7 +242,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -243,7 +256,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.userChanged.emit()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -258,7 +271,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
           this.notifier.success($localize`Will remove comments of this account (may take several minutes).`)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -267,11 +280,11 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
   }
 
   private isMyUser (user: User) {
-    return user && this.authService.getUser().id === user.id
+    return this.authService.getUser().id === user?.id
   }
 
   private isMyAccount (account: AccountMutedStatus) {
-    return account && this.authService.getUser().account.id === account.id
+    return this.authService.getUser().account.id === account?.id
   }
 
   private async buildActions () {
@@ -286,7 +299,7 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
     const instanceModerationActions = this.buildInstanceModerationActions()
 
     if (myAccountModerationActions.length !== 0) userActions.push(myAccountModerationActions)
-    if (instanceModerationActions.length !== 0) userActions.push(instanceModerationActions)
+    if (instanceModerationActions.length !== 0) userActions.push(...instanceModerationActions)
 
     this.userActions = await this.hooks.wrapObject(userActions, 'moderation', 'filter:user-moderation.actions.create.result')
   }
@@ -297,7 +310,6 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
     const myAccountActions: DropdownAction<{ user: User, account: AccountMutedStatus }>[] = [
       {
         label: $localize`My account moderation`,
-        class: [ 'red' ],
         isHeader: true
       },
       {
@@ -340,65 +352,92 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
 
     const authUser = this.authService.getUser()
 
-    let instanceActions: DropdownAction<{ user: User, account: AccountMutedStatus }>[] = []
+    const instanceActions: DropdownAction<{ user: User, account: AccountMutedStatus }>[][] = []
 
     const displayOptions = this.displayOptions()
-    const userValue = this.user()
-    if (userValue && displayOptions.instanceUser && authUser.hasRight(UserRight.MANAGE_USERS) && authUser.canManage(userValue)) {
-      instanceActions = instanceActions.concat([
+
+    const hasManageRight = this.user() && displayOptions.instanceUser && authUser.hasRight(UserRight.MANAGE_USERS) &&
+      authUser.canManageUser(this.user())
+
+    const hasAccountBlocklistRight = this.account() && displayOptions.instanceAccount &&
+      authUser.hasRight(UserRight.MANAGE_ACCOUNTS_BLOCKLIST)
+    const hasServerBlocklistRight = this.account() && displayOptions.instanceAccount &&
+      authUser.hasRight(UserRight.MANAGE_SERVERS_BLOCKLIST)
+    const hasBulkRemoveCommentsRight = this.account() && displayOptions.instanceAccount &&
+      authUser.hasRight(UserRight.MANAGE_ANY_VIDEO_COMMENT)
+
+    if (hasManageRight) {
+      instanceActions.push([
+        { label: $localize`Manage user`, isHeader: true },
+
         {
           label: $localize`Edit user`,
           description: $localize`Change quota, role, and more.`,
           linkBuilder: ({ user }) => this.getRouterUserEditLink(user)
         },
+
         {
-          label: $localize`Delete user`,
-          description: $localize`Videos will be deleted, comments will be tombstoned.`,
-          isDisplayed: ({ user }) => !this.isMyUser(user),
-          handler: ({ user }) => this.removeUser(user)
-        },
-        {
-          label: $localize`Ban`,
-          description: $localize`User won't be able to login anymore, but videos and comments will be kept as is.`,
-          handler: ({ user }) => this.openBanUserModal(user),
-          isDisplayed: ({ user }) => !this.isMyUser(user) && !user.blocked
-        },
-        {
-          label: $localize`Unban user`,
-          description: $localize`Allow the user to login and create videos/comments again`,
-          handler: ({ user }) => this.unbanUser(user),
-          isDisplayed: ({ user }) => !this.isMyUser(user) && user.blocked
-        },
-        {
-          label: $localize`Set Email as Verified`,
+          label: $localize`Set email as verified`,
           handler: ({ user }) => this.setEmailAsVerified(user),
           isDisplayed: ({ user }) => !user.blocked && user.emailVerified !== true
+        },
+        {
+          label: $localize`Re-send verification email`,
+          handler: ({ user }) => this.resendVerificationEmail(user),
+          isDisplayed: ({ user }) => !user.blocked && user.emailVerified !== true && !user.pluginAuth
         }
       ])
     }
 
     // Instance actions on account blocklists
-    const accountValue = this.account()
-    if (accountValue && displayOptions.instanceAccount && authUser.hasRight(UserRight.MANAGE_ACCOUNTS_BLOCKLIST)) {
-      instanceActions = instanceActions.concat([
-        {
-          label: $localize`Mute this account`,
-          description: $localize`Hide any content from that user from you, your platform and its users.`,
-          isDisplayed: ({ account }) => !this.isMyAccount(account) && account.mutedByInstance === false,
-          handler: ({ account }) => this.blockAccountByInstance(account)
-        },
-        {
-          label: $localize`Unmute this account`,
-          description: $localize`Show this user's content to the users of this platform again.`,
-          isDisplayed: ({ account }) => !this.isMyAccount(account) && account.mutedByInstance === true,
-          handler: ({ account }) => this.unblockAccountByInstance(account)
-        }
-      ])
+
+    if (hasAccountBlocklistRight || hasManageRight) {
+      let platformModerationActions: DropdownAction<{ user: User, account: AccountMutedStatus }>[] = [
+        { label: $localize`Platform account moderation`, isHeader: true }
+      ]
+
+      if (hasAccountBlocklistRight) {
+        platformModerationActions = platformModerationActions.concat([
+          {
+            label: $localize`Mute this account`,
+            description: $localize`Hide any content from that user from you, your platform and its users.`,
+            isDisplayed: ({ account }) => !this.isMyAccount(account) && account.mutedByInstance === false,
+            handler: ({ account }) => this.blockAccountByInstance(account)
+          },
+          {
+            label: $localize`Unmute this account`,
+            description: $localize`Show this user's content to the users of this platform again.`,
+            isDisplayed: ({ account }) => !this.isMyAccount(account) && account.mutedByInstance === true,
+            handler: ({ account }) => this.unblockAccountByInstance(account)
+          }
+        ])
+      }
+
+      if (hasManageRight) {
+        platformModerationActions = platformModerationActions.concat([
+          {
+            label: $localize`Ban`,
+            description: $localize`User won't be able to login anymore, but videos and comments will be kept as is.`,
+            handler: ({ user }) => this.openBanUserModal(user),
+            isDisplayed: ({ user }) => !this.isMyUser(user) && !user.blocked
+          },
+          {
+            label: $localize`Unban user`,
+            description: $localize`Allow the user to login and create videos/comments again`,
+            handler: ({ user }) => this.unbanUser(user),
+            isDisplayed: ({ user }) => !this.isMyUser(user) && user.blocked
+          }
+        ])
+      }
+
+      instanceActions.push(platformModerationActions)
     }
 
     // Instance actions on server blocklists
-    if (accountValue && displayOptions.instanceAccount && authUser.hasRight(UserRight.MANAGE_SERVERS_BLOCKLIST)) {
-      instanceActions = instanceActions.concat([
+    if (hasServerBlocklistRight) {
+      instanceActions.push([
+        { label: $localize`Platform server moderation`, isHeader: true },
+
         {
           label: $localize`Mute the platform`,
           description: $localize`Hide any content from that platform from you, your platform and its users.`,
@@ -414,19 +453,34 @@ export class UserModerationDropdownComponent implements OnInit, OnChanges {
       ])
     }
 
-    if (accountValue && displayOptions.instanceAccount && authUser.hasRight(UserRight.MANAGE_ANY_VIDEO_COMMENT)) {
-      instanceActions = instanceActions.concat([
-        {
-          label: $localize`Remove comments from your platform`,
-          description: $localize`Remove comments made by this account from your platform.`,
-          isDisplayed: ({ account }) => !this.isMyAccount(account),
-          handler: ({ account }) => this.bulkRemoveCommentsOf({ accountName: account.nameWithHost, scope: 'instance' })
-        }
-      ])
+    if (hasBulkRemoveCommentsRight || hasManageRight) {
+      const dangerActions: DropdownAction<{ user: User, account: AccountMutedStatus }>[] = [
+        { label: $localize`Platform danger zone`, isHeader: true }
+      ]
+
+      if (hasBulkRemoveCommentsRight) {
+        dangerActions.push(
+          {
+            label: $localize`Remove comments from your platform`,
+            description: $localize`Remove comments made by this account from your platform.`,
+            isDisplayed: ({ account }) => !this.isMyAccount(account),
+            handler: ({ account }) => this.bulkRemoveCommentsOf({ accountName: account.nameWithHost, scope: 'instance' })
+          }
+        )
+      }
+
+      if (hasManageRight) {
+        dangerActions.push({
+          label: $localize`Delete user`,
+          description: $localize`Videos will be deleted, comments will be tombstoned.`,
+          isDisplayed: ({ user }) => !this.isMyUser(user),
+          handler: ({ user }) => this.removeUser(user)
+        })
+      }
+
+      instanceActions.push(dangerActions)
     }
 
-    if (instanceActions.length === 0) return []
-
-    return [ { label: $localize`Platform moderation`, isHeader: true }, ...instanceActions ]
+    return instanceActions
   }
 }

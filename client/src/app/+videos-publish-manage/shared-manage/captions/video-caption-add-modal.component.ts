@@ -1,4 +1,3 @@
-import { NgIf } from '@angular/common'
 import { Component, ElementRef, OnInit, inject, input, output, viewChild } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { ServerService } from '@app/core'
@@ -8,7 +7,7 @@ import { FormReactiveService } from '@app/shared/shared-forms/form-reactive.serv
 import { SelectOptionsComponent } from '@app/shared/shared-forms/select/select-options.component'
 import { VideoCaptionEdit } from '@app/+videos-publish-manage/shared-manage/common/video-caption-edit.model'
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap'
-import { HTMLServerConfig, VideoConstant } from '@peertube/peertube-models'
+import { HTMLServerConfig, ConstantLabel } from '@peertube/peertube-models'
 import { ReactiveFileComponent } from '../../../shared/shared-forms/reactive-file.component'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 
@@ -16,7 +15,7 @@ import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.co
   selector: 'my-video-caption-add-modal',
   styleUrls: [ './video-caption-add-modal.component.scss' ],
   templateUrl: './video-caption-add-modal.component.html',
-  imports: [ FormsModule, ReactiveFormsModule, GlobalIconComponent, NgIf, ReactiveFileComponent, SelectOptionsComponent ]
+  imports: [ FormsModule, ReactiveFormsModule, GlobalIconComponent, ReactiveFileComponent, SelectOptionsComponent ]
 })
 export class VideoCaptionAddModalComponent extends FormReactive implements OnInit {
   protected formReactiveService = inject(FormReactiveService)
@@ -30,7 +29,7 @@ export class VideoCaptionAddModalComponent extends FormReactive implements OnIni
 
   readonly modal = viewChild<ElementRef>('modal')
 
-  videoCaptionLanguages: VideoConstant<string>[] = []
+  videoCaptionLanguages: ConstantLabel<string>[] = []
 
   private openedModal: NgbModalRef
 
@@ -47,7 +46,7 @@ export class VideoCaptionAddModalComponent extends FormReactive implements OnIni
   }
 
   ngOnInit () {
-    this.serverService.getVideoLanguages()
+    this.serverService.getVideoTextLanguages()
       .subscribe(languages => this.videoCaptionLanguages = languages)
 
     this.buildForm({

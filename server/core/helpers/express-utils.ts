@@ -135,7 +135,7 @@ export function createReqFiles (
     })
   }
 
-  return multer({ storage }).fields(fields)
+  return multer({ storage, defParamCharset: 'utf8' }).fields(fields)
 }
 
 export function createAnyReqFiles (
@@ -164,6 +164,12 @@ export function isUserAbleToSearchRemoteURI (res: express.Response) {
 
 export function getCountVideos (req: express.Request) {
   return req.query.skipCount !== true
+}
+
+export function getAuthUser (res: express.Response) {
+  return res.locals.oauth
+    ? res.locals.oauth.token.User
+    : undefined
 }
 
 // ---------------------------------------------------------------------------

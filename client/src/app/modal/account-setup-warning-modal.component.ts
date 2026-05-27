@@ -1,4 +1,3 @@
-import { CommonModule } from '@angular/common'
 import { Component, ElementRef, OnInit, inject, output, viewChild } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { RouterLink } from '@angular/router'
@@ -13,7 +12,7 @@ import { peertubeLocalStorage } from '@root-helpers/peertube-web-storage'
   selector: 'my-account-setup-warning-modal',
   templateUrl: './account-setup-warning-modal.component.html',
   styleUrls: [ './account-setup-warning-modal.component.scss' ],
-  imports: [ CommonModule, GlobalIconComponent, PeertubeCheckboxComponent, FormsModule, RouterLink ]
+  imports: [ GlobalIconComponent, PeertubeCheckboxComponent, FormsModule, RouterLink ]
 })
 export class AccountSetupWarningModalComponent implements OnInit {
   private userService = inject(UserService)
@@ -50,7 +49,7 @@ export class AccountSetupWarningModalComponent implements OnInit {
     return !!user.account.description
   }
 
-  shouldOpen (user: User) {
+  shouldAutoOpen (user: User) {
     if (this.modalService.hasOpenModals()) return false
     if (user.noAccountSetupWarningModal === true) return false
     if (peertubeLocalStorage.getItem(this.LS_KEYS.NO_ACCOUNT_SETUP_WARNING_MODAL) === 'true') return false
@@ -85,7 +84,7 @@ export class AccountSetupWarningModalComponent implements OnInit {
       .subscribe({
         next: () => logger.info('We will not open the account setup modal again.'),
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 }

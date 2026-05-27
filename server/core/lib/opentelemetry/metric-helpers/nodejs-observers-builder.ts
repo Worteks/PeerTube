@@ -171,19 +171,14 @@ export class NodeJSObserversBuilder {
   private buildActiveResourcesObserver () {
     if (typeof (process as any).getActiveResourcesInfo !== 'function') return
 
-    const grouped = this.meter.createObservableCounter('nodejs_active_resources', {
+    this.meter.createObservableGauge('nodejs_active_resources_total', {
       description: 'Number of active resources that are currently keeping the event loop alive, grouped by async resource type.'
-    })
-    const total = this.meter.createObservableCounter('nodejs_active_resources_total', {
-      description: 'Total number of active resources.'
-    })
-
-    this.meter.addBatchObservableCallback(observableResult => {
+    }).addCallback(observableResult => {
       const resources = (process as any).getActiveResourcesInfo()
 
       const data = {}
 
-      // eslint-disable-next-line @typescript-eslint/prefer-for-of
+      // oxlint-disable-next-line @typescript-eslint/prefer-for-of
       for (let i = 0; i < resources.length; i++) {
         const resource = resources[i]
 
@@ -192,10 +187,8 @@ export class NodeJSObserversBuilder {
       }
 
       for (const type of Object.keys(data)) {
-        observableResult.observe(grouped, data[type], { type })
+        observableResult.observe(data[type], { type })
       }
-
-      observableResult.observe(total, resources.length)
-    }, [ grouped, total ])
+    })
   }
 }

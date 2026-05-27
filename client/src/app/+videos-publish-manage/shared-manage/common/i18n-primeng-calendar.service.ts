@@ -1,9 +1,9 @@
 import { Injectable, inject } from '@angular/core'
-import { PrimeNGConfig } from 'primeng/api'
+import { PrimeNG } from 'primeng/config'
 
 @Injectable()
 export class I18nPrimengCalendarService {
-  private config = inject(PrimeNGConfig)
+  private config = inject(PrimeNG)
 
   constructor () {
     this.config.setTranslation({
@@ -82,9 +82,5 @@ export class I18nPrimengCalendarService {
 
   getDateFormat () {
     return $localize`:Date format in this locale.:yy-mm-dd`
-  }
-
-  getVideoPublicationYearRange () {
-    return '1880:' + (new Date()).getFullYear()
   }
 }

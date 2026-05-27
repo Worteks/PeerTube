@@ -4,6 +4,7 @@ import {
   HttpStatusCode,
   ResultList,
   VideoChannel,
+  VideoChannelActivity,
   VideoChannelCreate,
   VideoChannelCreateResult,
   VideoChannelUpdate,
@@ -39,6 +40,7 @@ export class ChannelsCommand extends AbstractCommand {
       sort?: string
       withStats?: boolean
       search?: string
+      includeCollaborations?: boolean
     }
   ) {
     const { accountName, sort = 'createdAt' } = options
@@ -48,7 +50,7 @@ export class ChannelsCommand extends AbstractCommand {
       ...options,
 
       path,
-      query: { sort, ...pick(options, [ 'start', 'count', 'withStats', 'search' ]) },
+      query: { sort, ...pick(options, [ 'start', 'count', 'withStats', 'search', 'includeCollaborations' ]) },
       implicitToken: false,
       defaultExpectedStatus: HttpStatusCode.OK_200
     })
@@ -144,16 +146,29 @@ export class ChannelsCommand extends AbstractCommand {
     return id
   }
 
+  async getDefaultId (options: OverrideCommandOptions) {
+    const { videoChannels } = await this.server.users.getMyInfo(options)
+
+    return videoChannels[0].id
+  }
+
   // ---------------------------------------------------------------------------
 
   updateImage (
     options: OverrideCommandOptions & {
-      fixture: string
+      fixture?: string
       channelName: string | number
       type: 'avatar' | 'banner'
     }
   ) {
-    const { channelName, fixture, type } = options
+    const { channelName, type } = options
+
+    let fixture = options.fixture
+
+    if (!fixture) {
+      if (type === 'avatar') fixture = 'avatar.png'
+      else fixture = 'banner.jpg'
+    }
 
     const path = `/api/v1/video-channels/${channelName}/${type}/pick`
 
@@ -188,6 +203,8 @@ export class ChannelsCommand extends AbstractCommand {
     })
   }
 
+  // ---------------------------------------------------------------------------
+
   listFollowers (
     options: OverrideCommandOptions & {
       channelName: string
@@ -203,6 +220,29 @@ export class ChannelsCommand extends AbstractCommand {
     const query = { start, count, sort, search }
 
     return this.getRequestBody<ResultList<ActorFollow>>({
+      ...options,
+
+      path,
+      query,
+      implicitToken: true,
+      defaultExpectedStatus: HttpStatusCode.OK_200
+    })
+  }
+
+  listActivities (
+    options: OverrideCommandOptions & {
+      channelName: string
+      start?: number
+      count?: number
+      sort?: string
+    }
+  ) {
+    const { channelName, start, count, sort } = options
+    const path = '/api/v1/video-channels/' + channelName + '/activities'
+
+    const query = { start, count, sort }
+
+    return this.getRequestBody<ResultList<VideoChannelActivity>>({
       ...options,
 
       path,

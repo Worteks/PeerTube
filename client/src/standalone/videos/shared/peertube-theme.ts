@@ -19,7 +19,7 @@ export class PeerTubeTheme {
 
     this.themeManager.loadThemeStyle(themeName)
 
-    this.themeManager.injectCoreColorPalette()
+    this.themeManager.injectColorPalette({ config: config.theme, currentTheme: themeName })
   }
 
   loadThemePlugins (config: HTMLServerConfig) {
@@ -45,7 +45,7 @@ export class PeerTubeTheme {
     if (instanceTheme !== 'default') return instanceTheme
 
     // Default to dark theme if available and wanted by the user
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
       return 'peertube-core-dark-brown' satisfies ServerConfig['theme']['builtIn'][0]['name']
     }
 

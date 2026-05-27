@@ -1,4 +1,4 @@
-import { afterLocalSuite, beforeLocalSuite, beforeLocalSession } from './src/utils'
+import { afterLocalSuite, afterLocalTest, beforeLocalSession, beforeLocalSuite } from './src/utils'
 import { config as mainConfig } from './wdio.main.conf'
 
 const prefs = {
@@ -47,6 +47,7 @@ module.exports = {
 
     beforeSession: beforeLocalSession,
     beforeSuite: beforeLocalSuite,
-    afterSuite: afterLocalSuite
+    afterSuite: afterLocalSuite,
+    afterTest: afterLocalTest
   } as WebdriverIO.Config
 }

@@ -42,7 +42,8 @@ import { VideoCommentModel } from '../../../models/video/video-comment.js'
 const auditLogger = auditLoggerFactory('comments')
 const videoCommentRouter = express.Router()
 
-videoCommentRouter.get('/:videoId/comment-threads',
+videoCommentRouter.get(
+  '/:videoId/comment-threads',
   paginationValidator,
   videoCommentThreadsSortValidator,
   setDefaultSort,
@@ -51,35 +52,41 @@ videoCommentRouter.get('/:videoId/comment-threads',
   optionalAuthenticate,
   asyncMiddleware(listVideoThreads)
 )
-videoCommentRouter.get('/:videoId/comment-threads/:threadId',
+videoCommentRouter.get(
+  '/:videoId/comment-threads/:threadId',
   asyncMiddleware(listVideoThreadCommentsValidator),
   optionalAuthenticate,
   asyncMiddleware(listVideoThreadComments)
 )
 
-videoCommentRouter.post('/:videoId/comment-threads',
+videoCommentRouter.post(
+  '/:videoId/comment-threads',
   authenticate,
   asyncMiddleware(addVideoCommentThreadValidator),
   asyncRetryTransactionMiddleware(addVideoCommentThread)
 )
-videoCommentRouter.post('/:videoId/comments/:commentId',
+videoCommentRouter.post(
+  '/:videoId/comments/:commentId',
   authenticate,
   asyncMiddleware(addVideoCommentReplyValidator),
   asyncRetryTransactionMiddleware(addVideoCommentReply)
 )
-videoCommentRouter.delete('/:videoId/comments/:commentId',
+videoCommentRouter.delete(
+  '/:videoId/comments/:commentId',
   authenticate,
   asyncMiddleware(removeVideoCommentValidator),
   asyncRetryTransactionMiddleware(removeVideoComment)
 )
 
-videoCommentRouter.post('/:videoId/comments/:commentId/approve',
+videoCommentRouter.post(
+  '/:videoId/comments/:commentId/approve',
   authenticate,
   asyncMiddleware(approveVideoCommentValidator),
   asyncMiddleware(approveVideoComment)
 )
 
-videoCommentRouter.get('/comments',
+videoCommentRouter.get(
+  '/comments',
   authenticate,
   ensureUserHasRight(UserRight.SEE_ALL_COMMENTS),
   paginationValidator,
@@ -99,6 +106,12 @@ export {
 // ---------------------------------------------------------------------------
 
 async function listComments (req: express.Request, res: express.Response) {
+  const serverActor = await getServerActor()
+
+  const blockerAccountIds = req.query.includeMuted !== true
+    ? await VideoCommentModel.buildBlockerAccountIds({ user: null })
+    : undefined
+
   const options = {
     ...pick(req.query, [
       'start',
@@ -112,13 +125,14 @@ async function listComments (req: express.Request, res: express.Response) {
       'autoTagOneOf'
     ]),
 
-    videoId: res.locals.onlyImmutableVideo?.id,
+    videoId: res.locals.videoImmutable?.id,
     videoChannelOwnerId: res.locals.videoChannel?.id,
-    autoTagOfAccountId: (await getServerActor()).Account.id,
+    autoTagOfAccountId: serverActor.Account.id,
+    blockerAccountIds,
     heldForReview: undefined
   }
 
-  const resultList = await VideoCommentModel.listCommentsForApi(options)
+  const resultList = await VideoCommentModel.listForApi(options)
 
   return res.json({
     total: resultList.total,
@@ -127,7 +141,7 @@ async function listComments (req: express.Request, res: express.Response) {
 }
 
 async function listVideoThreads (req: express.Request, res: express.Response) {
-  const video = res.locals.onlyVideo
+  const video = res.locals.videoWithBlacklist
   const user = res.locals.oauth ? res.locals.oauth.token.User : undefined
 
   let resultList: ThreadsResultList<MCommentFormattable>
@@ -161,7 +175,7 @@ async function listVideoThreads (req: express.Request, res: express.Response) {
 }
 
 async function listVideoThreadComments (req: express.Request, res: express.Response) {
-  const video = res.locals.onlyVideo
+  const video = res.locals.videoWithBlacklist
   const user = res.locals.oauth ? res.locals.oauth.token.User : undefined
 
   let resultList: ResultList<MCommentFormattable>
@@ -201,7 +215,7 @@ async function addVideoCommentThread (req: express.Request, res: express.Respons
   const comment = await createLocalVideoComment({
     text: videoCommentInfo.text,
     inReplyToComment: null,
-    video: res.locals.videoAll,
+    video: res.locals.videoWithRights,
     user: res.locals.oauth.token.User
   })
 
@@ -219,7 +233,7 @@ async function addVideoCommentReply (req: express.Request, res: express.Response
   const comment = await createLocalVideoComment({
     text: videoCommentInfo.text,
     inReplyToComment: res.locals.videoCommentFull,
-    video: res.locals.videoAll,
+    video: res.locals.videoWithRights,
     user: res.locals.oauth.token.User
   })
 

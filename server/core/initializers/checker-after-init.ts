@@ -8,6 +8,7 @@ import { basename } from 'path'
 import { URL } from 'url'
 import { parseBytes, parseSemVersion } from '../helpers/core-utils.js'
 import { isArray } from '../helpers/custom-validators/misc.js'
+import { getBrowseVideosDefaultSortError, getBrowseVideosDefaultScopeError } from '../helpers/custom-validators/browse-videos.js'
 import { logger } from '../helpers/logger.js'
 import { ApplicationModel, getServerActor } from '../models/application/application.js'
 import { OAuthClientModel } from '../models/oauth/oauth-client.js'
@@ -54,6 +55,7 @@ function checkConfig () {
   checkObjectStorageConfig()
   checkVideoStudioConfig()
   checkThumbnailsConfig()
+  checkBrowseVideosConfig()
 }
 
 // We get db by param to not import it in this file (import orders)
@@ -148,7 +150,7 @@ function checkSecretsConfig () {
 function checkEmailConfig () {
   if (!isEmailEnabled()) {
     if (CONFIG.SIGNUP.ENABLED && CONFIG.SIGNUP.REQUIRES_EMAIL_VERIFICATION) {
-      throw new Error('SMTP is not configured but you require signup email verification.')
+      logger.error('SMTP is not configured but you require signup email verification.')
     }
 
     if (CONFIG.SIGNUP.ENABLED && CONFIG.SIGNUP.REQUIRES_APPROVAL) {
@@ -362,7 +364,7 @@ function checkObjectStorageConfig () {
   }
 
   if (CONFIG.OBJECT_STORAGE.MAX_UPLOAD_PART > parseBytes('250MB')) {
-    // eslint-disable-next-line max-len
+    // oxlint-disable-next-line max-len
     logger.warn(
       `Object storage max upload part seems to have a big value (${CONFIG.OBJECT_STORAGE.MAX_UPLOAD_PART} bytes). ` +
         `Consider using a lower one (like 100MB).`
@@ -381,7 +383,15 @@ function checkThumbnailsConfig () {
     throw new Error('thumbnails.generation_from_video.frames_to_analyze must be a number greater than 1')
   }
 
-  if (!isArray(CONFIG.THUMBNAILS.SIZES) || CONFIG.THUMBNAILS.SIZES.length !== 2) {
-    throw new Error('thumbnails.sizes must be an array of 2 sizes')
+  if (!isArray(CONFIG.THUMBNAILS.SIZES) || CONFIG.THUMBNAILS.SIZES.length === 0) {
+    throw new Error('thumbnails.sizes must not be empty')
   }
+}
+
+function checkBrowseVideosConfig () {
+  const sortError = getBrowseVideosDefaultSortError(CONFIG.CLIENT.BROWSE_VIDEOS.DEFAULT_SORT, CONFIG.TRENDING.VIDEOS.ALGORITHMS.ENABLED)
+  if (sortError) throw new Error(sortError)
+
+  const scopeError = getBrowseVideosDefaultScopeError(CONFIG.CLIENT.BROWSE_VIDEOS.DEFAULT_SCOPE)
+  if (scopeError) throw new Error(scopeError)
 }

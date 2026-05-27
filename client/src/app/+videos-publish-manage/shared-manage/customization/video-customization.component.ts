@@ -1,25 +1,28 @@
-import { NgIf } from '@angular/common'
 import { Component, OnDestroy, OnInit, inject } from '@angular/core'
 import { FormControl, FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { ServerService } from '@app/core'
-import { BuildFormArgument } from '@app/shared/form-validators/form-validator.model'
+import { BuildFormArgumentTyped } from '@app/shared/form-validators/form-validator.model'
 import { VIDEO_ORIGINALLY_PUBLISHED_AT_VALIDATOR } from '@app/shared/form-validators/video-validators'
-import { FormReactiveErrors, FormReactiveService, FormReactiveValidationMessages } from '@app/shared/shared-forms/form-reactive.service'
-import { HTMLServerConfig } from '@peertube/peertube-models'
+import { FormReactiveErrors, FormReactiveMessages, FormReactiveService } from '@app/shared/shared-forms/form-reactive.service'
+import { SelectPlayerThemeComponent } from '@app/shared/shared-forms/select/select-player-theme.component'
+import { HTMLServerConfig, PlayerVideoSettings, VideoChannel } from '@peertube/peertube-models'
 import debug from 'debug'
-import { CalendarModule } from 'primeng/calendar'
+import { DatePickerModule } from 'primeng/datepicker'
 import { Subscription } from 'rxjs'
 import { PeertubeCheckboxComponent } from '../../../shared/shared-forms/peertube-checkbox.component'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 import { I18nPrimengCalendarService } from '../common/i18n-primeng-calendar.service'
 import { VideoEdit } from '../common/video-edit.model'
 import { VideoManageController } from '../video-manage-controller.service'
-
 const debugLogger = debug('peertube:video-manage')
 
 type Form = {
   downloadEnabled: FormControl<boolean>
   originallyPublishedAt: FormControl<Date>
+
+  playerSettings: FormGroup<{
+    theme: FormControl<PlayerVideoSettings['theme']>
+  }>
 }
 
 @Component({
@@ -31,10 +34,10 @@ type Form = {
   imports: [
     FormsModule,
     ReactiveFormsModule,
-    NgIf,
-    CalendarModule,
+    DatePickerModule,
     PeertubeCheckboxComponent,
-    GlobalIconComponent
+    GlobalIconComponent,
+    SelectPlayerThemeComponent
   ]
 })
 export class VideoCustomizationComponent implements OnInit, OnDestroy {
@@ -45,12 +48,12 @@ export class VideoCustomizationComponent implements OnInit, OnDestroy {
 
   form: FormGroup<Form>
   formErrors: FormReactiveErrors = {}
-  validationMessages: FormReactiveValidationMessages = {}
+  validationMessages: FormReactiveMessages = {}
 
   videoEdit: VideoEdit
+  videoChannel: Pick<VideoChannel, 'name' | 'displayName'>
 
   calendarDateFormat: string
-  myYearRange: string
 
   serverConfig: HTMLServerConfig
 
@@ -58,23 +61,29 @@ export class VideoCustomizationComponent implements OnInit, OnDestroy {
 
   constructor () {
     this.calendarDateFormat = this.i18nPrimengCalendarService.getDateFormat()
-    this.myYearRange = this.i18nPrimengCalendarService.getVideoPublicationYearRange()
   }
 
   ngOnInit () {
     this.serverConfig = this.serverService.getHTMLConfig()
 
-    const { videoEdit } = this.manageController.getStore()
+    const { videoEdit, userChannels } = this.manageController.getStore()
     this.videoEdit = videoEdit
+
+    const channelItem = userChannels.find(c => c.id === videoEdit.toCommonFormPatch().channelId)
+    this.videoChannel = { name: channelItem.name, displayName: channelItem.label }
 
     this.buildForm()
   }
 
   private buildForm () {
-    const defaultValues = this.videoEdit.toCommonFormPatch()
-    const obj: BuildFormArgument = {
+    const defaultValues = { ...this.videoEdit.toCommonFormPatch(), playerSettings: this.videoEdit.toPlayerSettingsFormPatch() }
+
+    const obj: BuildFormArgumentTyped<Form> = {
       downloadEnabled: null,
-      originallyPublishedAt: VIDEO_ORIGINALLY_PUBLISHED_AT_VALIDATOR
+      originallyPublishedAt: VIDEO_ORIGINALLY_PUBLISHED_AT_VALIDATOR,
+      playerSettings: {
+        theme: null
+      }
     }
 
     const {
@@ -94,12 +103,18 @@ export class VideoCustomizationComponent implements OnInit, OnDestroy {
       debugLogger('Updating form values', formValues)
 
       this.videoEdit.loadFromCommonForm(formValues)
+      this.videoEdit.loadFromPlayerSettingsForm({
+        theme: formValues.playerSettings.theme
+      })
     })
 
     this.formReactiveService.markAllAsDirty(this.form.controls)
 
     this.updatedSub = this.manageController.getUpdatedObs().subscribe(() => {
-      this.form.patchValue(this.videoEdit.toCommonFormPatch())
+      this.form.patchValue({
+        ...this.videoEdit.toCommonFormPatch(),
+        ...this.videoEdit.toPlayerSettingsFormPatch()
+      })
     })
   }
 

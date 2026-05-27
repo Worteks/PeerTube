@@ -1,10 +1,9 @@
-import { NgClass, NgFor, NgIf } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { Component, ElementRef, OnInit, inject, viewChild } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { LocalStorageService, Notifier } from '@app/core'
 import { SelectOptionsComponent } from '@app/shared/shared-forms/select/select-options.component'
 import { PTDatePipe } from '@app/shared/shared-main/common/date.pipe'
-import { PeerTubeTemplateDirective } from '@app/shared/shared-main/common/peertube-template.directive'
 import { ServerLogLevel } from '@peertube/peertube-models'
 import { SelectTagsComponent } from '../../../shared/shared-forms/select/select-tags.component'
 import { ButtonComponent } from '../../../shared/shared-main/buttons/button.component'
@@ -17,15 +16,12 @@ import { LogsService } from './logs.service'
   styleUrls: [ './logs.component.scss' ],
   imports: [
     FormsModule,
-    NgFor,
-    NgIf,
     NgClass,
     SelectTagsComponent,
     ButtonComponent,
     PTDatePipe,
     CopyButtonComponent,
-    SelectOptionsComponent,
-    PeerTubeTemplateDirective
+    SelectOptionsComponent
   ]
 })
 export class LogsComponent implements OnInit {
@@ -93,7 +89,7 @@ export class LogsComponent implements OnInit {
         })
       },
 
-      error: err => this.notifier.error(err.message),
+      error: err => this.notifier.handleError(err),
 
       complete: () => this.loading = false
     })

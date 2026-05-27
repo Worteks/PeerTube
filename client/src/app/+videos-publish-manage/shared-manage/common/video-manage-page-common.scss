@@ -2,26 +2,10 @@
 @use "_mixins" as *;
 @use "_form-mixins" as *;
 
-h2 {
-  font-weight: $font-bold;
-  color: pvar(--fg-350);
-  line-height: 1;
-
-  @include font-size(2rem);
-  @include rfs(2rem, margin-bottom);
-
-  my-global-icon {
-    @include global-icon-size(28px);
-    @include margin-right(0.5rem);
-  }
-
+.form-title {
   @include on-small-main-col {
     text-align: center;
   }
-}
-
-.peertube-select-container {
-  @include peertube-select-container(auto);
 }
 
 my-peertube-checkbox {
@@ -37,6 +21,10 @@ input[type="text"] {
   display: block;
 
   @include peertube-input-text(100%);
+}
+
+textarea {
+  @include peertube-textarea(100%, 150px);
 }
 
 p-calendar {

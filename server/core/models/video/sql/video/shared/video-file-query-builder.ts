@@ -1,5 +1,6 @@
 import { Sequelize, Transaction } from 'sequelize'
 import { AbstractVideoQueryBuilder } from './abstract-video-query-builder.js'
+import { TableAttributeOptions } from './table-attributes-options.model.js'
 
 export type FileQueryOptions = {
   id?: string | number
@@ -10,17 +11,15 @@ export type FileQueryOptions = {
   transaction?: Transaction
 
   logging?: boolean
+
+  tableAttributes?: TableAttributeOptions
 }
 
 /**
- *
  * Fetch files (web videos and streaming playlist) according to a video
- *
  */
 
 export class VideoFileQueryBuilder extends AbstractVideoQueryBuilder {
-  protected attributes: { [key: string]: string }
-
   constructor (protected readonly sequelize: Sequelize) {
     super(sequelize, 'get')
   }
@@ -57,7 +56,7 @@ export class VideoFileQueryBuilder extends AbstractVideoQueryBuilder {
     this.includeStreamingPlaylistFiles()
 
     if (options.includeRedundancy) {
-      this.includeStreamingPlaylistRedundancies()
+      this.includeStreamingPlaylistRedundancies(options.tableAttributes)
     }
 
     this.whereId(options)

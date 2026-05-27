@@ -50,10 +50,10 @@ export class VideoFilters {
   private nsfwFlagsBlurred: number
 
   private defaultValues = new Map<keyof VideoFilters, any>([
-    [ 'sort', '-publishedAt' ],
+    [ 'sort', undefined ],
     [ 'languageOneOf', undefined ],
     [ 'categoryOneOf', undefined ],
-    [ 'scope', 'federated' ],
+    [ 'scope', undefined ],
     [ 'allVideos', false ],
     [ 'live', 'both' ],
     [ 'search', '' ]
@@ -112,6 +112,10 @@ export class VideoFilters {
     this.defaultValues.set('sort', sort)
   }
 
+  setDefaultLanguages (languages: string[]) {
+    this.defaultValues.set('languageOneOf', languages)
+  }
+
   setNSFWPolicy (user: Pick<User, 'nsfwPolicy' | 'nsfwFlagsDisplayed' | 'nsfwFlagsHidden' | 'nsfwFlagsWarned' | 'nsfwFlagsBlurred'>) {
     this.nsfwPolicy = user.nsfwPolicy
     this.nsfwFlagsDisplayed = user.nsfwFlagsDisplayed
@@ -147,6 +151,8 @@ export class VideoFilters {
   load (obj: Partial<AttributesOnly<VideoFilters>>, customizedByUser?: boolean) {
     debugLogger('Loading object in video filters', { obj, customizedByUser })
 
+    this.reset({ triggerChange: false })
+
     if (customizedByUser) this.customizedByUser = customizedByUser
 
     if (obj.sort !== undefined) this.sort = obj.sort
@@ -169,6 +175,8 @@ export class VideoFilters {
     debugLogger('Cloning video filters', { videoFilters: this })
 
     const cloned = new VideoFilters(this.defaultValues.get('sort'), this.defaultValues.get('scope'), this.hiddenFields)
+
+    cloned.setDefaultLanguages(this.defaultValues.get('languageOneOf'))
 
     cloned.setNSFWPolicy({
       nsfwPolicy: this.nsfwPolicy,

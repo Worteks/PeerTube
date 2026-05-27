@@ -3,16 +3,18 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { ActivatedRoute } from '@angular/router'
 import { VideoEdit } from '@app/+videos-publish-manage/shared-manage/common/video-edit.model'
 import { VideoManageController } from '@app/+videos-publish-manage/shared-manage/video-manage-controller.service'
-import { CanComponentDeactivate, HooksService, Notifier, ServerService } from '@app/core'
+import { AuthService, CanComponentDeactivate, HooksService, Notifier, ServerService } from '@app/core'
 import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
 import { VideoImportService } from '@app/shared/shared-main/video/video-import.service'
 import { VideoService } from '@app/shared/shared-main/video/video.service'
+import { PlayerSettingsService } from '@app/shared/shared-video/player-settings.service'
+import { VideoEmbedPrivacyService } from '@app/shared/shared-video/video-embed-privacy.service'
 import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap'
 import { LoadingBarService } from '@ngx-loading-bar/core'
 import { PeerTubeProblemDocument, ServerErrorCode, UserVideoQuota, VideoPrivacyType } from '@peertube/peertube-models'
 import debug from 'debug'
-import { switchMap } from 'rxjs'
-import { SelectChannelItem } from 'src/types'
+import { forkJoin, switchMap } from 'rxjs'
+import { SelectChannelItem } from '@pt-types'
 import { SelectChannelComponent } from '../../../shared/shared-forms/select/select-channel.component'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 import { HelpComponent } from '../../../shared/shared-main/buttons/help.component'
@@ -41,14 +43,17 @@ const debugLogger = debug('peertube:video-publish')
   ]
 })
 export class VideoImportTorrentComponent implements OnInit, AfterViewInit, CanComponentDeactivate {
+  private authService = inject(AuthService)
   private loadingBar = inject(LoadingBarService)
   private notifier = inject(Notifier)
   private videoService = inject(VideoService)
+  private playerSettingsService = inject(PlayerSettingsService)
   private videoImportService = inject(VideoImportService)
   private hooks = inject(HooksService)
   private serverService = inject(ServerService)
   private manageController = inject(VideoManageController)
   private route = inject(ActivatedRoute)
+  private videoEmbedPrivacyService = inject(VideoEmbedPrivacyService)
 
   readonly userChannels = input.required<SelectChannelItem[]>()
   readonly userQuota = input.required<UserVideoQuota>()
@@ -121,20 +126,27 @@ export class VideoImportTorrentComponent implements OnInit, AfterViewInit, CanCo
       torrentfile,
       magnetUri: this.firstStepMagnetUri,
       channelId: this.firstStepChannelId,
-      support: this.userChannels().find(c => c.id === this.firstStepChannelId).support ?? ''
+      support: this.userChannels().find(c => c.id === this.firstStepChannelId).support ?? '',
+      user: this.authService.getUser()
     })
     this.manageController.setConfig({ manageType: 'import-torrent', serverConfig: this.serverService.getHTMLConfig() })
     this.manageController.setVideoEdit(videoEdit)
 
-    this.loadingBar.useRef().start()
+    this.loadingBar.useRef('import-video').start()
 
     this.videoImportService.importVideo(videoEdit.toVideoImportCreate(this.highestPrivacy()))
-      .pipe(switchMap(({ video }) => this.videoService.getVideo({ videoId: video.uuid })))
+      .pipe(switchMap(({ video }) => {
+        return forkJoin([
+          this.videoService.getVideo({ videoId: video.uuid }),
+          this.playerSettingsService.getVideoSettings({ videoId: video.uuid, raw: true }),
+          this.videoEmbedPrivacyService.getPrivacy({ videoId: video.uuid })
+        ])
+      }))
       .subscribe({
-        next: async video => {
-          await videoEdit.loadFromAPI({ video })
+        next: async ([ video, playerSettings, embedPrivacy ]) => {
+          await videoEdit.loadFromAPI({ video, playerSettings, embedPrivacy, loadPrivacy: false })
 
-          this.loadingBar.useRef().complete()
+          this.loadingBar.useRef('import-video').complete()
 
           debugLogger(`Torrent/magnet import created`)
 
@@ -146,18 +158,20 @@ export class VideoImportTorrentComponent implements OnInit, AfterViewInit, CanCo
         },
 
         error: err => {
-          this.loadingBar.useRef().complete()
+          this.isImportingVideo = false
+
+          this.loadingBar.useRef('import-video').complete()
           this.firstStepError.emit()
 
-          let message = err.message
           const error = err.body as PeerTubeProblemDocument
 
           if (error?.code === ServerErrorCode.INCORRECT_FILES_IN_TORRENT) {
-            message = $localize`Torrents with only 1 file are supported.`
+            this.notifier.error($localize`Torrents with only 1 file are supported.`)
+
+            return
           }
 
-          this.notifier.error(message)
-          this.isImportingVideo = false
+          this.notifier.handleError(err)
         }
       })
   }

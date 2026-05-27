@@ -2,13 +2,18 @@ import {
   FileStorage,
   VideoResolution,
   VideoStreamingPlaylistType,
+  VideoStreamingPlaylistTypeString,
   type FileStorageType,
   type VideoStreamingPlaylistType_Type
 } from '@peertube/peertube-models'
 import { generateP2PMediaLoaderHash } from '@peertube/peertube-node-utils'
 import { logger } from '@server/helpers/logger.js'
 import { CONFIG } from '@server/initializers/config.js'
-import { getHLSPrivateFileUrl, getObjectStoragePublicFileUrl } from '@server/lib/object-storage/index.js'
+import {
+  buildObjectStorageHLSPrivateFileUrl,
+  buildObjectStoragePublicFileUrl,
+  generateHLSObjectStorageKey
+} from '@server/lib/object-storage/index.js'
 import { generateHLSMasterPlaylistFilename, generateHlsSha256SegmentsFilename } from '@server/lib/paths.js'
 import { isVideoInPrivateDirectory } from '@server/lib/video-privacy.js'
 import { VideoFileModel } from '@server/models/video/video-file.js'
@@ -56,48 +61,48 @@ import { VideoModel } from './video.js'
 })
 export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPlaylistModel> {
   @CreatedAt
-  createdAt: Date
+  declare createdAt: Date
 
   @UpdatedAt
-  updatedAt: Date
+  declare updatedAt: Date
 
   @AllowNull(false)
   @Column
-  type: VideoStreamingPlaylistType_Type
+  declare type: VideoStreamingPlaylistType_Type
 
   @AllowNull(false)
   @Column
-  playlistFilename: string
+  declare playlistFilename: string
 
   @AllowNull(true)
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.VIDEOS.URL.max))
-  playlistUrl: string
+  declare playlistUrl: string
 
   @AllowNull(false)
   @Is('VideoStreamingPlaylistInfoHashes', value => throwIfNotValid(value, v => isArrayOf(v, isVideoFileInfoHashValid), 'info hashes'))
   @Column(DataType.ARRAY(DataType.STRING))
-  p2pMediaLoaderInfohashes: string[]
+  declare p2pMediaLoaderInfohashes: string[]
 
   @AllowNull(false)
   @Column
-  p2pMediaLoaderPeerVersion: number
+  declare p2pMediaLoaderPeerVersion: number
 
   @AllowNull(true)
   @Column
-  segmentsSha256Filename: string
+  declare segmentsSha256Filename: string
 
   @AllowNull(true)
   @Column
-  segmentsSha256Url: string
+  declare segmentsSha256Url: string
 
   @ForeignKey(() => VideoModel)
   @Column
-  videoId: number
+  declare videoId: number
 
   @AllowNull(false)
   @Default(FileStorage.FILE_SYSTEM)
   @Column
-  storage: FileStorageType
+  declare storage: FileStorageType
 
   @BelongsTo(() => VideoModel, {
     foreignKey: {
@@ -105,7 +110,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
     },
     onDelete: 'CASCADE'
   })
-  Video: Awaited<VideoModel>
+  declare Video: Awaited<VideoModel>
 
   @HasMany(() => VideoFileModel, {
     foreignKey: {
@@ -113,7 +118,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
     },
     onDelete: 'CASCADE'
   })
-  VideoFiles: Awaited<VideoFileModel>[]
+  declare VideoFiles: Awaited<VideoFileModel>[]
 
   @HasMany(() => VideoRedundancyModel, {
     foreignKey: {
@@ -122,7 +127,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
     onDelete: 'CASCADE',
     hooks: true
   })
-  RedundancyVideos: Awaited<VideoRedundancyModel>[]
+  declare RedundancyVideos: Awaited<VideoRedundancyModel>[]
 
   static doesInfohashExistCached = memoizee(VideoStreamingPlaylistModel.doesInfohashExist.bind(VideoStreamingPlaylistModel), {
     promise: true,
@@ -157,7 +162,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
     return hashes
   }
 
-  static async listByIncorrectPeerVersion () {
+  static async listIdsByIncorrectPeerVersion () {
     const rows = await VideoStreamingPlaylistModel.unscoped().findAll({
       raw: true,
       attributes: [ 'id' ],
@@ -170,6 +175,26 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
 
     return rows.map(r => r.id)
   }
+
+  static async listIdsLocals () {
+    const rows = await VideoStreamingPlaylistModel.unscoped().findAll({
+      raw: true,
+      attributes: [ 'id' ],
+      include: [
+        {
+          model: VideoModel.unscoped(),
+          required: true,
+          where: {
+            remote: false
+          }
+        }
+      ]
+    })
+
+    return rows.map(r => r.id)
+  }
+
+  // ---------------------------------------------------------------------------
 
   static loadWithVideoAndFiles (id: number) {
     const options = {
@@ -272,7 +297,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
   // ---------------------------------------------------------------------------
 
   getMasterPlaylistUrl (video: MVideo) {
-    if (video.isOwned()) {
+    if (video.isLocal()) {
       if (this.storage === FileStorage.OBJECT_STORAGE) {
         return this.getMasterPlaylistObjectStorageUrl(video)
       }
@@ -285,16 +310,19 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
 
   private getMasterPlaylistObjectStorageUrl (video: MVideo) {
     if (video.hasPrivateStaticPath() && CONFIG.OBJECT_STORAGE.PROXY.PROXIFY_PRIVATE_FILES === true) {
-      return getHLSPrivateFileUrl(video, this.playlistFilename)
+      return buildObjectStorageHLSPrivateFileUrl(video, this.playlistFilename)
     }
 
-    return getObjectStoragePublicFileUrl(this.playlistUrl, CONFIG.OBJECT_STORAGE.STREAMING_PLAYLISTS)
+    return buildObjectStoragePublicFileUrl({
+      bucket: CONFIG.OBJECT_STORAGE.STREAMING_PLAYLISTS,
+      key: generateHLSObjectStorageKey(video, this.playlistFilename)
+    })
   }
 
   // ---------------------------------------------------------------------------
 
   getSha256SegmentsUrl (video: MVideo) {
-    if (video.isOwned()) {
+    if (video.isLocal()) {
       if (!this.segmentsSha256Filename) return null
 
       if (this.storage === FileStorage.OBJECT_STORAGE) {
@@ -309,10 +337,13 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
 
   private getSha256SegmentsObjectStorageUrl (video: MVideo) {
     if (video.hasPrivateStaticPath() && CONFIG.OBJECT_STORAGE.PROXY.PROXIFY_PRIVATE_FILES === true) {
-      return getHLSPrivateFileUrl(video, this.segmentsSha256Filename)
+      return buildObjectStorageHLSPrivateFileUrl(video, this.segmentsSha256Filename)
     }
 
-    return getObjectStoragePublicFileUrl(this.segmentsSha256Url, CONFIG.OBJECT_STORAGE.STREAMING_PLAYLISTS)
+    return buildObjectStoragePublicFileUrl({
+      bucket: CONFIG.OBJECT_STORAGE.STREAMING_PLAYLISTS,
+      key: generateHLSObjectStorageKey(video, this.segmentsSha256Filename)
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -337,7 +368,7 @@ export class VideoStreamingPlaylistModel extends SequelizeModel<VideoStreamingPl
     return false
   }
 
-  getStringType () {
+  getStringType (): VideoStreamingPlaylistTypeString {
     if (this.type === VideoStreamingPlaylistType.HLS) return 'hls'
 
     return 'unknown'

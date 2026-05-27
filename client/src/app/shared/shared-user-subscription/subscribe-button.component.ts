@@ -1,9 +1,11 @@
-import { NgClass, NgIf, NgTemplateOutlet } from '@angular/common'
-import { Component, OnChanges, inject, input, viewChild } from '@angular/core'
+import { NgClass, NgTemplateOutlet } from '@angular/common'
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop'
+import { Component, DestroyRef, OnChanges, inject, input, viewChild } from '@angular/core'
 import { AuthService, Notifier, RedirectService } from '@app/core'
 import { NgbDropdown, NgbDropdownMenu, NgbDropdownToggle } from '@ng-bootstrap/ng-bootstrap'
 import { FeedFormat, FeedType } from '@peertube/peertube-models'
 import { concat, forkJoin, merge } from 'rxjs'
+import { take } from 'rxjs/operators'
 import { Account } from '../shared-main/account/account.model'
 import { VideoChannel } from '../shared-main/channel/video-channel.model'
 import { VideoService } from '../shared-main/video/video.service'
@@ -16,7 +18,6 @@ import { UserSubscriptionService } from './user-subscription.service'
   styleUrls: [ './subscribe-button.component.scss' ],
   imports: [
     NgClass,
-    NgIf,
     NgTemplateOutlet,
     NgbDropdown,
     NgbDropdownToggle,
@@ -25,6 +26,7 @@ import { UserSubscriptionService } from './user-subscription.service'
   ]
 })
 export class SubscribeButtonComponent implements OnChanges {
+  private destroyRef = inject(DestroyRef)
   private authService = inject(AuthService)
   private redirectService = inject(RedirectService)
   private notifier = inject(Notifier)
@@ -46,6 +48,8 @@ export class SubscribeButtonComponent implements OnChanges {
   subscribed = new Map<string, boolean>()
 
   buttonClasses: Record<string, boolean> = {}
+
+  private loadedSubscribedStatus = false
 
   get handle () {
     const account = this.account()
@@ -148,7 +152,7 @@ export class SubscribeButtonComponent implements OnChanges {
           )
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -185,7 +189,7 @@ export class SubscribeButtonComponent implements OnChanges {
           )
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -216,6 +220,13 @@ export class SubscribeButtonComponent implements OnChanges {
     return this.isSingleSubscribe && !this.isUserLoggedIn()
   }
 
+  isLoaded () {
+    if (!this.isUserLoggedIn()) return true
+    if (!this.videoChannels() || this.videoChannels().length === 0) return true
+
+    return this.loadedSubscribedStatus
+  }
+
   private getChannelHandler (videoChannel: VideoChannel) {
     return videoChannel.name + '@' + videoChannel.host
   }
@@ -229,16 +240,18 @@ export class SubscribeButtonComponent implements OnChanges {
 
       merge(
         this.userSubscriptionService.listenToSubscriptionCacheChange(handle),
-        this.userSubscriptionService.doesSubscriptionExist(handle)
-      ).subscribe({
-        next: res => {
-          this.subscribed.set(handle, res)
+        this.userSubscriptionService.doesSubscriptionExist(handle).pipe(take(1))
+      ).pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: res => {
+            this.subscribed.set(handle, res)
+            this.loadedSubscribedStatus = true
 
-          this.buildClasses()
-        },
+            this.buildClasses()
+          },
 
-        error: err => this.notifier.error(err.message)
-      })
+          error: err => this.notifier.handleError(err)
+        })
     }
   }
 

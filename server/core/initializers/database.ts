@@ -1,5 +1,7 @@
 import { isTestOrDevInstance } from '@peertube/peertube-node-utils'
 import { ActorCustomPageModel } from '@server/models/account/actor-custom-page.js'
+import { ActorReservedModel } from '@server/models/actor/actor-reserved.js'
+import { UploadImageModel } from '@server/models/application/upload-image.js'
 import { AccountAutomaticTagPolicyModel } from '@server/models/automatic-tag/account-automatic-tag-policy.js'
 import { AutomaticTagModel } from '@server/models/automatic-tag/automatic-tag.js'
 import { CommentAutomaticTagModel } from '@server/models/automatic-tag/comment-automatic-tag.js'
@@ -9,23 +11,29 @@ import { RunnerRegistrationTokenModel } from '@server/models/runner/runner-regis
 import { RunnerModel } from '@server/models/runner/runner.js'
 import { TrackerModel } from '@server/models/server/tracker.js'
 import { VideoTrackerModel } from '@server/models/server/video-tracker.js'
+import { LocalVideoViewerWatchSectionModel } from '@server/models/stat/local-video-viewer-watch-section.js'
+import { LocalVideoViewerModel } from '@server/models/stat/local-video-viewer.js'
 import { UserExportModel } from '@server/models/user/user-export.js'
 import { UserImportModel } from '@server/models/user/user-import.js'
 import { UserNotificationModel } from '@server/models/user/user-notification.js'
 import { UserRegistrationModel } from '@server/models/user/user-registration.js'
 import { UserVideoHistoryModel } from '@server/models/user/user-video-history.js'
 import { UserModel } from '@server/models/user/user.js'
+import { PlayerSettingModel } from '@server/models/video/player-setting.js'
 import { StoryboardModel } from '@server/models/video/storyboard.js'
+import { VideoChannelActivityModel } from '@server/models/video/video-channel-activity.js'
+import { VideoChannelCollaboratorModel } from '@server/models/video/video-channel-collaborator.js'
 import { VideoChannelSyncModel } from '@server/models/video/video-channel-sync.js'
 import { VideoChapterModel } from '@server/models/video/video-chapter.js'
+import { VideoEmbedPrivacyDomainModel } from '@server/models/video/video-embed-privacy-domain.js'
 import { VideoJobInfoModel } from '@server/models/video/video-job-info.js'
 import { VideoLiveReplaySettingModel } from '@server/models/video/video-live-replay-setting.js'
+import { VideoLiveScheduleModel } from '@server/models/video/video-live-schedule.js'
 import { VideoLiveSessionModel } from '@server/models/video/video-live-session.js'
 import { VideoPasswordModel } from '@server/models/video/video-password.js'
 import { VideoSourceModel } from '@server/models/video/video-source.js'
-import { LocalVideoViewerWatchSectionModel } from '@server/models/view/local-video-viewer-watch-section.js'
-import { LocalVideoViewerModel } from '@server/models/view/local-video-viewer.js'
 import { WatchedWordsListModel } from '@server/models/watched-words/watched-words-list.js'
+import { readFileSync } from 'fs'
 import pg from 'pg'
 import { QueryTypes, Transaction } from 'sequelize'
 import { Sequelize as SequelizeTypescript } from 'sequelize-typescript'
@@ -47,13 +55,14 @@ import { VideoRedundancyModel } from '../models/redundancy/video-redundancy.js'
 import { PluginModel } from '../models/server/plugin.js'
 import { ServerBlocklistModel } from '../models/server/server-blocklist.js'
 import { ServerModel } from '../models/server/server.js'
+import { VideoStatModel } from '../models/stat/video-stat.js'
 import { UserNotificationSettingModel } from '../models/user/user-notification-setting.js'
+import { ChangeOwnershipModel } from '../models/video/change-ownership.js'
 import { ScheduleVideoUpdateModel } from '../models/video/schedule-video-update.js'
 import { TagModel } from '../models/video/tag.js'
 import { ThumbnailModel } from '../models/video/thumbnail.js'
 import { VideoBlacklistModel } from '../models/video/video-blacklist.js'
 import { VideoCaptionModel } from '../models/video/video-caption.js'
-import { VideoChangeOwnershipModel } from '../models/video/video-change-ownership.js'
 import { VideoChannelModel } from '../models/video/video-channel.js'
 import { VideoCommentModel } from '../models/video/video-comment.js'
 import { VideoFileModel } from '../models/video/video-file.js'
@@ -65,7 +74,6 @@ import { VideoShareModel } from '../models/video/video-share.js'
 import { VideoStreamingPlaylistModel } from '../models/video/video-streaming-playlist.js'
 import { VideoTagModel } from '../models/video/video-tag.js'
 import { VideoModel } from '../models/video/video.js'
-import { VideoViewModel } from '../models/view/video-view.js'
 import { CONFIG } from './config.js'
 
 pg.defaults.parseInt8 = true // Avoid BIGINT to be converted to string
@@ -80,10 +88,23 @@ const poolMax = CONFIG.DATABASE.POOL.MAX
 let dialectOptions: any = {}
 
 if (CONFIG.DATABASE.SSL) {
+  // For reference: https://node-postgres.com/features/ssl
   dialectOptions = {
     ssl: {
-      rejectUnauthorized: false
+      rejectUnauthorized: CONFIG.DATABASE.SSL_SETTINGS.REJECT_UNAUTHORIZED
     }
+  }
+
+  if (CONFIG.DATABASE.SSL_SETTINGS.CA) {
+    dialectOptions.ssl.ca = readFileSync(CONFIG.DATABASE.SSL_SETTINGS.CA, { encoding: 'utf-8' })
+  }
+
+  if (CONFIG.DATABASE.SSL_SETTINGS.CERT) {
+    dialectOptions.ssl.cert = readFileSync(CONFIG.DATABASE.SSL_SETTINGS.CERT, { encoding: 'utf-8' })
+  }
+
+  if (CONFIG.DATABASE.SSL_SETTINGS.KEY) {
+    dialectOptions.ssl.key = readFileSync(CONFIG.DATABASE.SSL_SETTINGS.KEY, { encoding: 'utf-8' })
   }
 }
 
@@ -100,12 +121,12 @@ export const sequelizeTypescript = new SequelizeTypescript({
   },
   benchmark: isTestOrDevInstance(),
   isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE,
-  logging: (message: string, benchmark: number) => {
+  logging: (message: string, executionTimeMs: number) => {
     if (process.env.NODE_DB_LOG === 'false') return
 
     let newMessage = 'Executed SQL request'
-    if (isTestOrDevInstance() === true && benchmark !== undefined) {
-      newMessage += ' in ' + benchmark + 'ms'
+    if (isTestOrDevInstance() && executionTimeMs !== undefined) {
+      newMessage += ' in ' + executionTimeMs + 'ms'
     }
 
     logger.debug(newMessage, { sql: message, tags: [ 'sql' ] })
@@ -116,7 +137,6 @@ export function checkDatabaseConnectionOrDie () {
   sequelizeTypescript.authenticate()
     .then(() => logger.debug('Connection to PostgreSQL has been established successfully.'))
     .catch(err => {
-
       logger.error('Unable to connect to PostgreSQL database.', { err })
       process.exit(-1)
     })
@@ -140,11 +160,12 @@ export async function initDatabaseModels (silent: boolean) {
     VideoCommentAbuseModel,
     VideoAbuseModel,
     VideoModel,
-    VideoChangeOwnershipModel,
+    ChangeOwnershipModel,
     VideoChannelModel,
     VideoShareModel,
     VideoFileModel,
     VideoSourceModel,
+    VideoChannelActivityModel,
     VideoChapterModel,
     VideoCaptionModel,
     VideoBlacklistModel,
@@ -152,7 +173,7 @@ export async function initDatabaseModels (silent: boolean) {
     VideoCommentModel,
     ScheduleVideoUpdateModel,
     VideoImportModel,
-    VideoViewModel,
+    VideoStatModel,
     VideoRedundancyModel,
     UserVideoHistoryModel,
     VideoLiveModel,
@@ -186,7 +207,13 @@ export async function initDatabaseModels (silent: boolean) {
     CommentAutomaticTagModel,
     AutomaticTagModel,
     WatchedWordsListModel,
-    AccountAutomaticTagPolicyModel
+    AccountAutomaticTagPolicyModel,
+    UploadImageModel,
+    VideoLiveScheduleModel,
+    PlayerSettingModel,
+    VideoChannelCollaboratorModel,
+    ActorReservedModel,
+    VideoEmbedPrivacyDomainModel
   ])
 
   // Check extensions exist in the database
@@ -210,7 +237,7 @@ async function checkPostgresExtensions () {
   return Promise.all(promises)
 }
 
-async function checkPostgresExtension (extension: string) {
+async function checkPostgresExtension (extension: 'pg_trgm' | 'unaccent') {
   const query = `SELECT 1 FROM pg_available_extensions WHERE name = '${extension}' AND installed_version IS NOT NULL;`
   const options = {
     type: QueryTypes.SELECT as QueryTypes.SELECT,
@@ -223,11 +250,11 @@ async function checkPostgresExtension (extension: string) {
     // Try to create the extension ourselves
     try {
       await sequelizeTypescript.query(`CREATE EXTENSION ${extension};`, { raw: true })
-
-    } catch {
+    } catch (err) {
       const errorMessage = `You need to enable ${extension} extension in PostgreSQL. ` +
         `You can do so by running 'CREATE EXTENSION ${extension};' as a PostgreSQL super user in ${CONFIG.DATABASE.DBNAME} database.`
-      throw new Error(errorMessage)
+
+      throw new Error(errorMessage, { cause: err })
     }
   }
 }

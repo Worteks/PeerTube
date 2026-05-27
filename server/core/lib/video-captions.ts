@@ -12,11 +12,11 @@ import { VideoCaptionModel } from '@server/models/video/video-caption.js'
 import { VideoJobInfoModel } from '@server/models/video/video-job-info.js'
 import { VideoStreamingPlaylistModel } from '@server/models/video/video-streaming-playlist.js'
 import { VideoModel } from '@server/models/video/video.js'
-import { MStreamingPlaylist, MVideo, MVideoCaption, MVideoFullLight, MVideoUUID, MVideoUrl } from '@server/types/models/index.js'
+import { MStreamingPlaylist, MVideo, MVideoCaption, MVideoFull, MVideoId, MVideoUUID, MVideoUrl } from '@server/types/models/index.js'
 import { MutexInterface } from 'async-mutex'
 import { ensureDir, remove } from 'fs-extra/esm'
 import { writeFile } from 'fs/promises'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { federateVideoIfNeeded } from './activitypub/videos/federate.js'
 import { buildCaptionM3U8Content, updateM3U8AndShaPlaylist } from './hls.js'
 import { JobQueue } from './job-queue/job-queue.js'
@@ -40,7 +40,8 @@ export async function createLocalCaption (options: {
     filename: VideoCaptionModel.generateCaptionName(language),
     storage: FileStorage.FILE_SYSTEM,
     language,
-    automaticallyGenerated
+    automaticallyGenerated,
+    cached: false
   }) as MVideoCaption
 
   await moveAndProcessCaptionFile({ path }, videoCaption)
@@ -112,8 +113,13 @@ export async function regenerateTranscriptionTaskIfNeeded (video: MVideo) {
   }
 }
 
-export async function createTranscriptionTaskIfNeeded (video: MVideoUUID & MVideoUrl) {
+export async function createTranscriptionTaskIfNeeded (video: MVideoId & MVideoUUID & MVideoUrl) {
   if (CONFIG.VIDEO_TRANSCRIPTION.ENABLED !== true) return
+
+  if (!await VideoModel.loadHasStream(video.id, VideoFileStream.AUDIO)) {
+    logger.info(`Do not create transcription job for ${video.url} that doesn't have an audio stream`, lTags(video.uuid))
+    return
+  }
 
   logger.info(`Creating transcription job for ${video.url}`, lTags(video.uuid))
 
@@ -196,7 +202,13 @@ export async function generateSubtitle (options: {
         format: 'vtt'
       })
 
-      await onTranscriptionEnded({ video, language: transcriptFile.language, vttPath: transcriptFile.path })
+      const refreshedVideo = await VideoModel.loadFull(video.uuid)
+      if (!refreshedVideo) {
+        logger.info(`Do not process transcription for video ${video.uuid}: it does not exist anymore.`, lTags(video.uuid))
+        return
+      }
+
+      await onTranscriptionEnded({ video: refreshedVideo, language: transcriptFile.language, vttPath: transcriptFile.path })
     })
   } finally {
     if (outputPath) await remove(outputPath)
@@ -208,7 +220,7 @@ export async function generateSubtitle (options: {
 }
 
 export async function onTranscriptionEnded (options: {
-  video: MVideoFullLight
+  video: MVideoFull
   language: string
   vttPath: string
   lTags?: (string | number)[]
@@ -240,7 +252,7 @@ export async function onTranscriptionEnded (options: {
   const existing = await VideoCaptionModel.loadByVideoIdAndLanguage(video.id, language)
   if (existing && !existing.automaticallyGenerated) {
     logger.info(
-      // eslint-disable-next-line max-len
+      // oxlint-disable-next-line max-len
       `Do not replace existing caption for video ${video.uuid} after transcription (subtitle may have been added while during the transcription process)`,
       lTags(video.uuid)
     )
@@ -274,6 +286,7 @@ export async function upsertCaptionPlaylistOnFS (caption: MVideoCaption, video: 
   logger.debug(`Creating caption playlist ${m3u8Destination} of video ${video.uuid}`, lTags(video.uuid))
 
   const content = buildCaptionM3U8Content({ video, caption })
+  await ensureDir(dirname(m3u8Destination))
   await writeFile(m3u8Destination, content, 'utf8')
 
   return m3u8Filename

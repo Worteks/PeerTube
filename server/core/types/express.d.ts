@@ -1,4 +1,11 @@
-import { HttpMethodType, PeerTubeProblemDocumentData, ServerErrorCodeType, ServerLogLevel, VideoCreate } from '@peertube/peertube-models'
+import {
+  HttpMethodType,
+  HttpStatusCodeType,
+  PeerTubeProblemDocumentData,
+  ServerErrorCodeType,
+  ServerLogLevel,
+  VideoCreate
+} from '@peertube/peertube-models'
 import { RegisterServerAuthExternalOptions } from '@server/types/index.js'
 import {
   MAbuseMessage,
@@ -7,24 +14,30 @@ import {
   MActorFollowActorsDefault,
   MActorUrl,
   MChannelBannerAccountDefault,
+  MChannelCollaboratorAccount,
   MChannelSyncChannel,
+  MLocalVideoViewerWithWatchSections,
   MRegistration,
   MStreamingPlaylist,
   MUserAccountUrl,
   MUserExport,
-  MVideoChangeOwnershipFull,
+  MChangeOwnershipFull,
+  MVideoEmbedDomain,
   MVideoFile,
   MVideoFormattableDetails,
   MVideoId,
   MVideoImmutable,
-  MVideoLiveFormattable,
+  MVideoLiveSessionReplay,
+  MVideoLiveWithSettingSchedules,
   MVideoPassword,
   MVideoPlaylistFull,
   MVideoPlaylistFullSummary,
-  MVideoThumbnailBlacklist,
+  MVideoThumbnails,
+  MVideoWithBlacklist,
+  MVideoWithRights,
   MWatchedWordsList
 } from '@server/types/models/index.js'
-import { MOAuthTokenUser } from '@server/types/models/oauth/oauth-token.js'
+import { MOAuthToken, MOAuthTokenUser } from '@server/types/models/oauth/oauth-token.js'
 import { MPlugin, MServer, MServerBlocklist } from '@server/types/models/server.js'
 import { MVideoImportDefault } from '@server/types/models/video/video-import.js'
 import { MVideoPlaylistElement, MVideoPlaylistElementVideoUrlPlaylistPrivacy } from '@server/types/models/video/video-playlist-element.js'
@@ -44,18 +57,21 @@ import {
   MUserDefault,
   MVideoBlacklist,
   MVideoCaptionVideo,
-  MVideoFullLight,
+  MVideoFull,
   MVideoRedundancyVideo,
   MVideoShareActor
 } from './models/index.js'
 import { MRunner, MRunnerJobRunner, MRunnerRegistrationToken } from './models/runners/index.js'
 import { MVideoSource } from './models/video/video-source.js'
+import { SignupMode } from '@server/lib/signup.ts'
 
 declare module 'express' {
   export interface Request {
     query: any
     method: HttpMethodType
     rawBody: Buffer // Allow plugin routes to access the raw body
+
+    t: (key: string, context?: Record<string, string | number>) => string
   }
 
   // ---------------------------------------------------------------------------
@@ -105,7 +121,7 @@ declare module 'express' {
       message: string
 
       title?: string
-      status?: number
+      status?: HttpStatusCodeType
       type?: ServerErrorCodeType
       instance?: string
 
@@ -116,6 +132,8 @@ declare module 'express' {
     }) => void
 
     locals: {
+      signupMode?: SignupMode
+
       requestStart: number
 
       apicacheGroups: string[]
@@ -134,13 +152,15 @@ declare module 'express' {
       ffprobe?: FfprobeData
 
       videoAPI?: MVideoFormattableDetails
-      videoAll?: MVideoFullLight
-      onlyImmutableVideo?: MVideoImmutable
-      onlyVideo?: MVideoThumbnailBlacklist
+      videoFull?: MVideoFull
+      videoImmutable?: MVideoImmutable
+      videoWithBlacklist?: MVideoWithBlacklist
+      videoWithRights?: MVideoWithRights
+      videoThumbnails?: MVideoThumbnails
       videoId?: MVideoId
 
-      videoLive?: MVideoLiveFormattable
-      videoLiveSession?: MVideoLiveSession
+      videoLive?: MVideoLiveWithSettingSchedules
+      videoLiveSession?: MVideoLiveSessionReplay
 
       videoShare?: MVideoShareActor
 
@@ -187,8 +207,10 @@ declare module 'express' {
       follow?: MActorFollowActorsDefault
       subscription?: MActorFollowActorsDefaultSubscription
 
-      nextOwner?: MAccountDefault
-      videoChangeOwnership?: MVideoChangeOwnershipFull
+      changeOwnership?: MChangeOwnershipFull
+      changeOwnershipNextOwner?: MAccountDefault
+
+      videoEmbedDomain?: MVideoEmbedDomain
 
       account?: MAccountDefault
 
@@ -237,6 +259,10 @@ declare module 'express' {
       userExport?: MUserExport
 
       watchedWordsList?: MWatchedWordsList
+
+      tokenSession?: MOAuthToken
+
+      channelCollaborator?: MChannelCollaboratorAccount
     }
   }
 }

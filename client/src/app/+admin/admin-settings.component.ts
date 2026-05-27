@@ -103,20 +103,20 @@ export class AdminSettingsComponent implements OnInit {
   }
 
   private buildRunnerItems () {
-    if (!this.isRemoteRunnersEnabled() || !this.hasRight(UserRight.MANAGE_RUNNERS)) return
+    if (!this.server.isRemoteRunnersEnabled() || !this.hasRight(UserRight.MANAGE_RUNNERS)) return
 
     this.menuEntries.push({
       label: $localize`Runners`,
-      routerLink: '/admin/settings/system/runners/runners-list',
+      routerLink: '/admin/settings/system/runners/jobs-list',
       children: [
-        {
-          label: $localize`Remote runners`,
-          routerLink: '/admin/settings/system/runners/runners-list'
-        },
-
         {
           label: $localize`Runner jobs`,
           routerLink: '/admin/settings/system/runners/jobs-list'
+        },
+
+        {
+          label: $localize`Remote runners`,
+          routerLink: '/admin/settings/system/runners/runners-list'
         },
 
         {
@@ -164,14 +164,5 @@ export class AdminSettingsComponent implements OnInit {
 
   private hasRight (right: UserRightType) {
     return this.auth.getUser().hasRight(right)
-  }
-
-  private isRemoteRunnersEnabled () {
-    const config = this.server.getHTMLConfig()
-
-    return config.transcoding.remoteRunners.enabled ||
-      config.live.transcoding.remoteRunners.enabled ||
-      config.videoStudio.remoteRunners.enabled ||
-      config.videoTranscription.remoteRunners.enabled
   }
 }

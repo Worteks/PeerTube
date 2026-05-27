@@ -1,58 +1,41 @@
-import { NgClass, NgIf } from '@angular/common'
-import { Component, OnInit, inject } from '@angular/core'
+import { CommonModule } from '@angular/common'
+import { Component, inject, viewChild } from '@angular/core'
 import { FormsModule } from '@angular/forms'
-import { Notifier, RestPagination, RestTable } from '@app/core'
-import { SelectOptionsComponent } from '@app/shared/shared-forms/select/select-options.component'
-
-import { AutoColspanDirective } from '@app/shared/shared-main/common/auto-colspan.directive'
-import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap'
+import { RouterLink } from '@angular/router'
+import { RestPagination, ServerService } from '@app/core'
+import { AdvancedFilterDef } from '@app/shared/shared-forms/advanced-input-filter.component'
+import { PeerTubeBadgeService } from '@app/shared/shared-main/common/peertube-badge.service'
 import { Job, JobState, JobType } from '@peertube/peertube-models'
-import { peertubeLocalStorage } from '@root-helpers/peertube-web-storage'
-import { SharedModule, SortMeta } from 'primeng/api'
-import { TableModule } from 'primeng/table'
-import { SelectOptionsItem } from 'src/types'
-import { JobStateClient } from '../../../../types/job-state-client.type'
-import { JobTypeClient } from '../../../../types/job-type-client.type'
-import { ButtonComponent } from '../../../shared/shared-main/buttons/button.component'
-import { TableExpanderIconComponent } from '../../../shared/shared-tables/table-expander-icon.component'
+import { SortMeta } from 'primeng/api'
+import { NumberFormatterPipe } from '../../../shared/shared-main/common/number-formatter.pipe'
+import { TableColumnInfo, TableComponent } from '../../../shared/shared-tables/table.component'
 import { JobService } from './job.service'
+
+type ColumnName = 'id' | 'type' | 'priority' | 'state' | 'progress' | 'createdAt' | 'processed'
+type DataLoaderParameter = Parameters<JobsComponent['_dataLoader']>[0]
 
 @Component({
   selector: 'my-jobs',
   templateUrl: './jobs.component.html',
   styleUrls: [ './jobs.component.scss' ],
   imports: [
+    CommonModule,
     FormsModule,
-    NgClass,
-    ButtonComponent,
-    TableModule,
-    SharedModule,
-    NgIf,
-    NgbTooltip,
-    TableExpanderIconComponent,
-    SelectOptionsComponent,
-    AutoColspanDirective
+    TableComponent,
+    NumberFormatterPipe,
+    RouterLink
   ]
 })
-export class JobsComponent extends RestTable implements OnInit {
-  private notifier = inject(Notifier)
+export class JobsComponent {
+  private server = inject(ServerService)
   private jobsService = inject(JobService)
+  private peertubeBadgeService = inject(PeerTubeBadgeService)
 
-  private static LS_STATE = 'jobs-list-state'
-  private static LS_TYPE = 'jobs-list-type'
+  readonly table = viewChild<TableComponent<Job, DataLoaderParameter, ColumnName>>('table')
 
-  jobState: JobStateClient = 'all'
-  jobStates: JobStateClient[] = [ 'all', 'active', 'completed', 'failed', 'waiting', 'delayed' ]
-  jobStateItems: SelectOptionsItem[] = this.jobStates.map(s => ({
-    id: s,
-    label: s,
-    classes: this.getJobStateClasses(s)
-  }))
+  private jobStates: JobState[] = [ 'active', 'completed', 'failed', 'waiting', 'delayed' ]
 
-  jobType: JobTypeClient = 'all'
-  jobTypes: JobTypeClient[] = [
-    'all',
-
+  private jobTypes: JobType[] = [
     'activitypub-cleaner',
     'activitypub-follow',
     'activitypub-http-broadcast-parallel',
@@ -79,50 +62,79 @@ export class JobsComponent extends RestTable implements OnInit {
     'video-studio-edition',
     'video-transcoding',
     'video-transcription',
-    'videos-views-stats'
+    'videos-stats'
   ]
-  jobTypeItems: SelectOptionsItem[] = this.jobTypes.map(i => ({ id: i, label: i }))
 
-  jobs: Job[] = []
-  totalRecords: number
-  sort: SortMeta = { field: 'createdAt', order: -1 }
-  pagination: RestPagination = { count: this.rowsPerPage, start: 0 }
+  readonly inputFilters: AdvancedFilterDef<DataLoaderParameter>[] = [
+    {
+      type: 'select',
+      key: 'type',
+      title: $localize`Job type`,
+      clearable: true,
+      filter: true,
+      items: this.jobTypes.map(i => ({
+        id: i,
+        label: i.toLocaleUpperCase(),
+        classes: [ 'pt-badge', this.getRandomJobTypeBadge(i) ]
+      }))
+    },
+    {
+      type: 'select',
+      key: 'state',
+      title: $localize`Job state`,
+      clearable: true,
+      items: this.jobStates.map(s => ({
+        id: s,
+        label: s.toLocaleUpperCase(),
+        classes: this.getJobStateClasses(s)
+      }))
+    }
+  ]
 
-  ngOnInit () {
-    this.loadJobStateAndType()
-    this.initialize()
+  columns: TableColumnInfo<ColumnName>[] = [
+    { id: 'id', class: 'job-id', label: $localize`ID`, sortable: false },
+    { id: 'type', class: 'job-type', label: $localize`Type`, sortable: false },
+    { id: 'priority', class: 'job-priority', label: $localize`Priority`, labelSmall: $localize`(1 = highest priority)`, sortable: false },
+    { id: 'state', class: 'job-state', label: $localize`State`, sortable: false },
+    { id: 'progress', class: 'job-progress', label: $localize`Progress`, isDisplayed: () => this.displayGlobalProgress, sortable: false },
+    { id: 'createdAt', class: 'job-date', label: $localize`Created`, sortable: true },
+    { id: 'processed', label: $localize`Processed/Finished`, sortable: false }
+  ]
+  dataLoader: typeof this._dataLoader
+
+  displayGlobalProgress = true
+
+  constructor () {
+    this.dataLoader = this._dataLoader.bind(this)
   }
 
-  getIdentifier () {
-    return 'JobsComponent'
-  }
-
-  getJobStateClasses (state: JobStateClient) {
+  getJobStateClasses (state: JobState): string[] {
     switch (state) {
+      case undefined:
+      case null:
+        return []
+
       case 'active':
         return [ 'pt-badge', 'badge-blue' ]
+
       case 'completed':
         return [ 'pt-badge', 'badge-green' ]
+
       case 'delayed':
+      case 'prioritized':
+      case 'paused':
         return [ 'pt-badge', 'badge-brown' ]
+
       case 'failed':
         return [ 'pt-badge', 'badge-red' ]
+
       case 'waiting':
+      case 'waiting-children':
         return [ 'pt-badge', 'badge-yellow' ]
     }
 
-    return []
-  }
-
-  onJobStateOrTypeChanged () {
-    this.pagination.start = 0
-
-    this.reloadData()
-    this.saveJobStateAndType()
-  }
-
-  hasGlobalProgress () {
-    return this.jobType === 'all' || this.jobType === 'video-transcoding'
+    // Do not remove, to ensure all cases are handled by the switch
+    return state
   }
 
   hasProgress (job: Job) {
@@ -135,48 +147,37 @@ export class JobsComponent extends RestTable implements OnInit {
     return ''
   }
 
-  refresh () {
-    this.jobs = []
-    this.totalRecords = 0
-
-    this.reloadData()
-  }
-
   getRandomJobTypeBadge (type: string) {
-    return this.getRandomBadge('type', type)
+    return this.peertubeBadgeService.getRandomBadge('type', type)
   }
 
-  protected reloadDataInternal () {
-    let jobState = this.jobState as JobState
-    if (this.jobState === 'all') jobState = null
-
-    this.jobsService
-      .listJobs({
-        jobState,
-        jobType: this.jobType,
-        pagination: this.pagination,
-        sort: this.sort
-      })
-      .subscribe({
-        next: resultList => {
-          this.jobs = resultList.data
-          this.totalRecords = resultList.total
-        },
-
-        error: err => this.notifier.error(err.message)
-      })
+  getStateFilterTitle (state: string) {
+    return $localize`Filter by state: ${state.toLocaleUpperCase()}`
   }
 
-  private loadJobStateAndType () {
-    const state = peertubeLocalStorage.getItem(JobsComponent.LS_STATE)
-    if (state && state !== 'undefined') this.jobState = state as JobState
-
-    const jobType = peertubeLocalStorage.getItem(JobsComponent.LS_TYPE)
-    if (jobType && jobType !== 'undefined') this.jobType = jobType as JobType
+  getTypeFilterTitle (type: string) {
+    return $localize`Filter by type: ${type.toLocaleUpperCase()}`
   }
 
-  private saveJobStateAndType () {
-    peertubeLocalStorage.setItem(JobsComponent.LS_STATE, this.jobState)
-    peertubeLocalStorage.setItem(JobsComponent.LS_TYPE, this.jobType)
+  isRunnerEnabled () {
+    return this.server.isRemoteRunnersEnabled()
+  }
+
+  private _dataLoader (options: {
+    pagination: RestPagination
+    sort: SortMeta
+    type?: JobType
+    state?: JobState
+  }) {
+    const { pagination, sort, type, state } = options
+
+    this.displayGlobalProgress = !type || type === 'video-transcoding'
+
+    return this.jobsService.listJobs({
+      jobState: state,
+      jobType: type,
+      pagination,
+      sort
+    })
   }
 }

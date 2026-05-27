@@ -1,10 +1,5 @@
-import {
-  ActivityTagObject,
-  ThumbnailType,
-  VideoChaptersObject,
-  VideoObject,
-  VideoStreamingPlaylistType_Type
-} from '@peertube/peertube-models'
+import { guessAspectRatio } from '@peertube/peertube-core-utils'
+import { ActivityTagObject, VideoChaptersObject, VideoObject, VideoStreamingPlaylistType_Type } from '@peertube/peertube-models'
 import { isVideoChaptersObjectValid } from '@server/helpers/custom-validators/activitypub/video-chapters.js'
 import { deleteAllModels, filterNonExistingModels, retryTransactionWrapper } from '@server/helpers/database-utils.js'
 import { LoggerTagsFn, logger } from '@server/helpers/logger.js'
@@ -17,6 +12,7 @@ import { setVideoTags } from '@server/lib/video.js'
 import { StoryboardModel } from '@server/models/video/storyboard.js'
 import { VideoCaptionModel } from '@server/models/video/video-caption.js'
 import { VideoFileModel } from '@server/models/video/video-file.js'
+import { VideoLiveScheduleModel } from '@server/models/video/video-live-schedule.js'
 import { VideoLiveModel } from '@server/models/video/video-live.js'
 import { VideoStreamingPlaylistModel } from '@server/models/video/video-streaming-playlist.js'
 import {
@@ -25,21 +21,21 @@ import {
   MVideo,
   MVideoCaption,
   MVideoFile,
-  MVideoFullLight,
-  MVideoThumbnail
+  MVideoFull,
+  MVideoThumbnails
 } from '@server/types/models/index.js'
 import { CreationAttributes, Transaction } from 'sequelize'
 import { fetchAP } from '../../activity.js'
 import { findOwner, getOrCreateAPActor } from '../../actors/index.js'
+import { upsertAPPlayerSettings } from '../../player-settings.js'
 import {
   getCaptionAttributesFromObject,
   getFileAttributesFromUrl,
   getLiveAttributesFromObject,
-  getPreviewFromIcons,
+  getLiveSchedulesAttributesFromObject,
   getStoryboardAttributeFromObject,
   getStreamingPlaylistAttributesFromObject,
-  getTagsFromObject,
-  getThumbnailFromIcons
+  getTagsFromObject
 } from './object-to-model-attributes.js'
 import { getTrackerUrls, setVideoTrackers } from './trackers.js'
 
@@ -48,60 +44,51 @@ export abstract class APVideoAbstractBuilder {
   protected abstract lTags: LoggerTagsFn
 
   protected async getOrCreateVideoChannelFromVideoObject () {
-    const channel = await findOwner(this.videoObject.id, this.videoObject.attributedTo, 'Group')
+    const channel = await findOwner({
+      rootUrl: this.videoObject.id,
+      attributedTo: this.videoObject.attributedTo,
+      audience: this.videoObject.audience,
+      type: 'Group'
+    })
+
     if (!channel) throw new Error('Cannot find associated video channel to video ' + this.videoObject.id)
 
     return getOrCreateAPActor(channel.id, 'all')
   }
 
-  protected async setThumbnail (video: MVideoThumbnail, t?: Transaction) {
-    const miniatureIcon = getThumbnailFromIcons(this.videoObject)
-    if (!miniatureIcon) {
-      logger.warn('Cannot find thumbnail in video object', { object: this.videoObject, ...this.lTags() })
+  protected async setThumbnails (video: MVideoThumbnails, t?: Transaction) {
+    const icons = this.videoObject.icon
+    if (icons.length === 0) {
+      logger.warn('Cannot find thumbnails in video object', { object: this.videoObject, ...this.lTags() })
       return undefined
     }
 
-    const miniatureModel = updateRemoteVideoThumbnail({
-      fileUrl: miniatureIcon.url,
-      video,
-      type: ThumbnailType.MINIATURE,
-      size: miniatureIcon,
-      onDisk: false // Lazy download remote thumbnails
+    const thumbnails = icons.map(icon => {
+      return updateRemoteVideoThumbnail({
+        fileUrl: icon.url,
+        video,
+        size: { ...icon, aspectRatio: guessAspectRatio(icon.width, icon.height) }
+      })
     })
 
-    await video.addAndSaveThumbnail(miniatureModel, t)
+    await video.replaceAndSaveThumbnails(thumbnails, t)
   }
 
-  protected async setPreview (video: MVideoFullLight, t?: Transaction) {
-    const previewIcon = getPreviewFromIcons(this.videoObject)
-    if (!previewIcon) return
-
-    const previewModel = updateRemoteVideoThumbnail({
-      fileUrl: previewIcon.url,
-      video,
-      type: ThumbnailType.PREVIEW,
-      size: previewIcon,
-      onDisk: false // Lazy download remote previews
-    })
-
-    await video.addAndSaveThumbnail(previewModel, t)
-  }
-
-  protected async setTags (video: MVideoFullLight, t: Transaction) {
+  protected async setTags (video: MVideoFull, t: Transaction) {
     const tags = getTagsFromObject(this.videoObject)
     await setVideoTags({ video, tags, transaction: t })
   }
 
-  protected async setTrackers (video: MVideoFullLight, t: Transaction) {
+  protected async setTrackers (video: MVideoFull, t: Transaction) {
     const trackers = getTrackerUrls(this.videoObject, video)
     await setVideoTrackers({ video, trackers, transaction: t })
   }
 
-  protected async insertOrReplaceCaptions (video: MVideoFullLight, t: Transaction) {
+  protected async insertOrReplaceCaptions (video: MVideoFull, t: Transaction) {
     const existingCaptions = await VideoCaptionModel.listVideoCaptions(video.id, t)
 
     let captionsToCreate = getCaptionAttributesFromObject(video, this.videoObject)
-                            .map(a => new VideoCaptionModel(a) as MVideoCaption)
+      .map(a => new VideoCaptionModel(a) as MVideoCaption)
 
     for (const existingCaption of existingCaptions) {
       // Only keep captions that do not already exist
@@ -122,36 +109,47 @@ export abstract class APVideoAbstractBuilder {
     }
   }
 
-  protected async insertOrReplaceStoryboard (video: MVideoFullLight, t: Transaction) {
+  protected async insertOrReplaceStoryboard (video: MVideoFull, t: Transaction) {
+    const storyboardAttributes = getStoryboardAttributeFromObject(video, this.videoObject)
+
     const existingStoryboard = await StoryboardModel.loadByVideo(video.id, t)
+    if (existingStoryboard?.fileUrl === storyboardAttributes?.fileUrl) return
+
     if (existingStoryboard) await existingStoryboard.destroy({ transaction: t })
 
-    const storyboardAttributes = getStoryboardAttributeFromObject(video, this.videoObject)
-    if (!storyboardAttributes) return
-
-    return StoryboardModel.create(storyboardAttributes, { transaction: t })
+    if (storyboardAttributes) {
+      await StoryboardModel.create(storyboardAttributes, { transaction: t })
+    }
   }
 
-  protected async insertOrReplaceLive (video: MVideoFullLight, transaction: Transaction) {
+  protected async insertOrReplaceLive (video: MVideoFull, transaction: Transaction) {
     const attributes = getLiveAttributesFromObject(video, this.videoObject)
     const [ videoLive ] = await VideoLiveModel.upsert(attributes, { transaction, returning: true })
 
-    video.VideoLive = videoLive
+    await VideoLiveScheduleModel.deleteAllOfLiveId(videoLive.id, transaction)
+    videoLive.LiveSchedules = []
+
+    for (const scheduleAttributes of getLiveSchedulesAttributesFromObject(videoLive, this.videoObject)) {
+      const scheduleModel = new VideoLiveScheduleModel(scheduleAttributes)
+
+      videoLive.LiveSchedules.push(await scheduleModel.save({ transaction }))
+    }
   }
 
-  protected async setWebVideoFiles (video: MVideoFullLight, t: Transaction) {
-    const videoFileAttributes = getFileAttributesFromUrl(video, this.videoObject.url)
-    const newVideoFiles = videoFileAttributes.map(a => new VideoFileModel(a))
+  protected async setWebVideoFiles (video: MVideoFull, t: Transaction) {
+    const oldFiles = video.VideoFiles || []
+
+    const newVideoFiles = getFileAttributesFromUrl(video, this.videoObject.url, oldFiles).map(a => new VideoFileModel(a))
 
     // Remove video files that do not exist anymore
-    await deleteAllModels(filterNonExistingModels(video.VideoFiles || [], newVideoFiles), t)
+    await deleteAllModels(filterNonExistingModels(oldFiles, newVideoFiles), t)
 
     // Update or add other one
     const upsertTasks = newVideoFiles.map(f => VideoFileModel.customUpsert(f, 'video', t))
     video.VideoFiles = await Promise.all(upsertTasks)
   }
 
-  protected async updateChaptersOutsideTransaction (video: MVideoFullLight) {
+  protected async updateChapters (video: MVideoFull) {
     if (!this.videoObject.hasParts || typeof this.videoObject.hasParts !== 'string') return
 
     const { body } = await fetchAP<VideoChaptersObject>(this.videoObject.hasParts)
@@ -171,7 +169,18 @@ export abstract class APVideoAbstractBuilder {
     })
   }
 
-  protected async setStreamingPlaylists (video: MVideoFullLight, t: Transaction) {
+  protected async upsertPlayerSettings (video: MVideoFull) {
+    if (typeof this.videoObject.playerSettings !== 'string') return
+
+    await upsertAPPlayerSettings({
+      settingsObject: this.videoObject.playerSettings,
+      video,
+      channel: undefined,
+      contextUrl: video.url
+    })
+  }
+
+  protected async setStreamingPlaylists (video: MVideoFull, t: Transaction) {
     const streamingPlaylistAttributes = getStreamingPlaylistAttributesFromObject(video, this.videoObject)
     const newStreamingPlaylists = streamingPlaylistAttributes.map(a => new VideoStreamingPlaylistModel(a))
 
@@ -212,7 +221,11 @@ export abstract class APVideoAbstractBuilder {
   ) {
     const oldStreamingPlaylistFiles = this.getStreamingPlaylistFiles(oldPlaylists || [], playlistModel.type)
 
-    const newVideoFiles: MVideoFile[] = getFileAttributesFromUrl(playlistModel, tagObjects).map(a => new VideoFileModel(a))
+    const newVideoFiles: MVideoFile[] = getFileAttributesFromUrl(
+      playlistModel,
+      tagObjects,
+      oldStreamingPlaylistFiles
+    ).map(a => new VideoFileModel(a))
 
     await deleteAllModels(filterNonExistingModels(oldStreamingPlaylistFiles, newVideoFiles), t)
 
@@ -228,7 +241,7 @@ export abstract class APVideoAbstractBuilder {
   }) {
     const { video, transaction, oldVideo } = options
 
-    if (oldVideo && video.name === oldVideo.name && video.description === oldVideo.description) return
+    if (video.name === oldVideo?.name && video.description === oldVideo.description) return
 
     const automaticTags = await new AutomaticTagger().buildVideoAutomaticTags({ video, transaction })
     await setAndSaveVideoAutomaticTags({ video, automaticTags, transaction })

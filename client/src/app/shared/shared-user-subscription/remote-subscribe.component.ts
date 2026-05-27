@@ -1,4 +1,3 @@
-import { NgIf } from '@angular/common'
 import { Component, OnInit, inject, input } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { Notifier } from '@app/core'
@@ -12,7 +11,7 @@ import { HelpComponent } from '../shared-main/buttons/help.component'
 @Component({
   selector: 'my-remote-subscribe',
   templateUrl: './remote-subscribe.component.html',
-  imports: [ FormsModule, ReactiveFormsModule, NgIf, HelpComponent ]
+  imports: [ FormsModule, ReactiveFormsModule, HelpComponent ]
 })
 export class RemoteSubscribeComponent extends FormReactive implements OnInit {
   protected formReactiveService = inject(FormReactiveService)
@@ -60,9 +59,12 @@ export class RemoteSubscribeComponent extends FormReactive implements OnInit {
         throw new Error('No subscribe template in webfinger response')
       })
       .then(url => {
-        if (isIOS()) return window.location.href = url
+        // Ensure the URL is valid
+        const parsed = new URL(url)
 
-        return window.open(url)
+        if (isIOS()) return window.location.href = parsed.toString()
+
+        return window.open(parsed.toString())
       })
       .catch(err => {
         logger.error(err)

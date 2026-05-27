@@ -72,21 +72,21 @@ export class PlayerPage {
   }
 
   getNSFWContentText () {
-    return $('.video-js .nsfw-content').getText()
+    return $('.video-js .nsfw-info').getText()
   }
 
-  getNSFWMoreContent () {
-    return $('.video-js .nsfw-more-content')
+  getNSFWDetailsContent () {
+    return $('.video-js .nsfw-details-content')
   }
 
   getMoreNSFWInfoButton () {
-    return $('.video-js .nsfw-container button')
+    return $('.video-js .nsfw-info button')
   }
 
   async hasPoster () {
-    const property = await $('.video-js .vjs-poster').getCSSProperty('background-image')
+    const img = $('.video-js .vjs-poster img')
 
-    return property.value.startsWith('url(')
+    return await img.isDisplayed() && (await img.getAttribute('src')).startsWith('http')
   }
 
   private async clickOnPlayButton () {

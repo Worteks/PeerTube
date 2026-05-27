@@ -1,5 +1,5 @@
-import { NgIf, NgTemplateOutlet } from '@angular/common'
-import { AfterContentInit, Component, contentChildren, forwardRef, input, model, TemplateRef } from '@angular/core'
+import { NgTemplateOutlet } from '@angular/common'
+import { AfterContentInit, booleanAttribute, Component, contentChildren, forwardRef, input, model, TemplateRef } from '@angular/core'
 import { ControlValueAccessor, FormsModule, NG_VALUE_ACCESSOR } from '@angular/forms'
 import { HelpComponent } from '../shared-main/buttons/help.component'
 import { PeerTubeTemplateDirective } from '../shared-main/common/peertube-template.directive'
@@ -15,7 +15,7 @@ import { PeerTubeTemplateDirective } from '../shared-main/common/peertube-templa
       multi: true
     }
   ],
-  imports: [ FormsModule, NgIf, NgTemplateOutlet, HelpComponent ]
+  imports: [ FormsModule, NgTemplateOutlet, HelpComponent ]
 })
 export class PeertubeCheckboxComponent implements ControlValueAccessor, AfterContentInit {
   readonly checked = model(false)
@@ -23,7 +23,8 @@ export class PeertubeCheckboxComponent implements ControlValueAccessor, AfterCon
   readonly labelText = input<string>(undefined)
   readonly labelInnerHTML = input<string>(undefined)
   readonly helpPlacement = input('top auto')
-  readonly recommended = input(false)
+  readonly recommended = input(false, { transform: booleanAttribute })
+  readonly small = input(false, { transform: booleanAttribute })
 
   disabled = false
   describedby: string

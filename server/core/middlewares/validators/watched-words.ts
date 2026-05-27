@@ -16,7 +16,7 @@ export const manageAccountWatchedWordsListValidator = [
 
   async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (areValidationErrors(req, res)) return
-    if (!await doesAccountHandleExist({ handle: req.params.accountName, res, checkIsLocal: true, checkManage: true })) return
+    if (!await doesAccountHandleExist({ handle: req.params.accountName, req, res, checkIsLocal: true, checkCanManage: true })) return
 
     return next()
   }
@@ -113,7 +113,7 @@ async function checkListNameIsUnique (options: {
   const { accountId, listName, currentList, res } = options
 
   const existing = await WatchedWordsListModel.loadByListName({ accountId, listName })
-  if (existing && (!currentList || currentList.id !== existing.id)) {
+  if (existing && (currentList?.id !== existing.id)) {
     res.fail({
       status: HttpStatusCode.BAD_REQUEST_400,
       message: `Watched words list with name ${listName} already exists`

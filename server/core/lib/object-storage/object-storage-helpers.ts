@@ -7,7 +7,6 @@ import { createReadStream, createWriteStream } from 'fs'
 import { ensureDir } from 'fs-extra/esm'
 import { dirname } from 'path'
 import { Readable } from 'stream'
-import { getInternalUrl } from './urls.js'
 import { getClient } from './shared/client.js'
 import { lTags } from './shared/logger.js'
 
@@ -15,6 +14,7 @@ import type { _Object, ObjectCannedACL, PutObjectCommandInput, S3Client } from '
 
 type BucketInfo = {
   BUCKET_NAME: string
+  BASE_URL: string
   PREFIX?: string
 }
 
@@ -31,6 +31,9 @@ async function listKeysOfPrefix (prefix: string, bucketInfo: BucketInfo, continu
   })
 
   const listedObjects = await s3Client.send(listCommand)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 
   if (isArray(listedObjects.Contents) !== true) return []
 
@@ -51,7 +54,7 @@ async function storeObject (options: {
   bucketInfo: BucketInfo
   isPrivate: boolean
   contentType: string
-}): Promise<string> {
+}): Promise<void> {
   const { inputPath, objectStorageKey, bucketInfo, isPrivate, contentType } = options
 
   logger.debug('Uploading file %s to %s%s in bucket %s', inputPath, bucketInfo.PREFIX, objectStorageKey, bucketInfo.BUCKET_NAME, lTags())
@@ -67,7 +70,7 @@ async function storeContent (options: {
   bucketInfo: BucketInfo
   isPrivate: boolean
   contentType: string
-}): Promise<string> {
+}): Promise<void> {
   const { content, objectStorageKey, bucketInfo, isPrivate, contentType } = options
 
   logger.debug('Uploading %s content to %s%s in bucket %s', content, bucketInfo.PREFIX, objectStorageKey, bucketInfo.BUCKET_NAME, lTags())
@@ -81,7 +84,7 @@ async function storeStream (options: {
   bucketInfo: BucketInfo
   isPrivate: boolean
   contentType: string
-}): Promise<string> {
+}): Promise<void> {
   const { stream, objectStorageKey, bucketInfo, isPrivate, contentType } = options
 
   logger.debug('Streaming file to %s%s in bucket %s', bucketInfo.PREFIX, objectStorageKey, bucketInfo.BUCKET_NAME, lTags())
@@ -115,6 +118,9 @@ async function updateObjectACL (options: {
 
   const client = await getClient()
   await client.send(command)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 }
 
 async function updatePrefixACL (options: {
@@ -167,6 +173,9 @@ async function removeObjectByFullKey (fullKey: string, bucketInfo: Pick<BucketIn
   const client = await getClient()
 
   return client.send(command)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 }
 
 async function removePrefix (prefix: string, bucketInfo: BucketInfo) {
@@ -208,6 +217,9 @@ async function makeAvailable (options: {
 
   const client = await getClient()
   const response = await client.send(command)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 
   const file = createWriteStream(destination)
   await pipelinePromise(response.Body as Readable, file)
@@ -238,6 +250,9 @@ async function createObjectReadStream (options: {
 
   const client = await getClient()
   const response = await client.send(command)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 
   return {
     response,
@@ -262,6 +277,9 @@ async function getObjectStorageFileSize (options: {
 
   const client = await getClient()
   const response = await client.send(command)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 
   return response.ContentLength
 }
@@ -269,20 +287,20 @@ async function getObjectStorageFileSize (options: {
 // ---------------------------------------------------------------------------
 
 export {
-  type BucketInfo,
   buildKey,
-  storeObject,
-  storeContent,
-  storeStream,
+  createObjectReadStream,
+  getObjectStorageFileSize,
+  listKeysOfPrefix,
+  makeAvailable,
   removeObject,
   removeObjectByFullKey,
   removePrefix,
-  makeAvailable,
+  storeContent,
+  storeObject,
+  storeStream,
   updateObjectACL,
   updatePrefixACL,
-  listKeysOfPrefix,
-  createObjectReadStream,
-  getObjectStorageFileSize
+  type BucketInfo
 }
 
 // ---------------------------------------------------------------------------
@@ -339,10 +357,8 @@ async function uploadToStorage (options: {
       bucketInfo.BUCKET_NAME,
       { ...lTags(), responseMetadata: response.$metadata }
     )
-
-    return getInternalUrl(bucketInfo, objectStorageKey)
   } catch (err) {
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    // oxlint-disable-next-line @typescript-eslint/only-throw-error
     throw parseS3Error(err)
   }
 }
@@ -368,6 +384,9 @@ async function applyOnPrefix (options: {
   })
 
   const listedObjects = await s3Client.send(listCommand)
+    .catch(err => {
+      throw parseS3Error(err)
+    })
 
   if (isArray(listedObjects.Contents) !== true) {
     const message = `Cannot apply function on ${commandPrefix} prefix in bucket ${bucketInfo.BUCKET_NAME}: no files listed.`
@@ -380,6 +399,9 @@ async function applyOnPrefix (options: {
     const command = commandBuilder(object)
 
     return s3Client.send(command)
+      .catch(err => {
+        throw parseS3Error(err)
+      })
   }, { concurrency: 10 })
 
   // Repeat if not all objects could be listed at once (limit of 1000?)
@@ -407,5 +429,5 @@ function parseS3Error (err: any) {
     }
   }
 
-  return err
+  return err as Error
 }

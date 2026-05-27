@@ -1,7 +1,7 @@
-import { addQueryParams, escapeHTML, getDefaultRSSFeeds } from '@peertube/peertube-core-utils'
+import { addQueryParams, escapeHTML } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, VideoPlaylistPrivacy } from '@peertube/peertube-models'
-import { toCompleteUUID } from '@server/helpers/custom-validators/misc.js'
 import { Memoize } from '@server/helpers/memoize.js'
+import { getPlaylistRSSFeeds } from '@server/lib/rss.js'
 import { VideoPlaylistModel } from '@server/models/video/video-playlist.js'
 import { MVideoPlaylist, MVideoPlaylistFull } from '@server/types/models/index.js'
 import express from 'express'
@@ -13,9 +13,7 @@ import { PageHtml } from './page-html.js'
 import { TagsHtml } from './tags-html.js'
 
 export class PlaylistHtml {
-  static async getWatchPlaylistHTML (videoPlaylistIdArg: string, req: express.Request, res: express.Response) {
-    const videoPlaylistId = toCompleteUUID(videoPlaylistIdArg)
-
+  static async getWatchPlaylistHTML (videoPlaylistId: string, req: express.Request, res: express.Response) {
     // Let Angular application handle errors
     if (!validator.default.isInt(videoPlaylistId) && !validator.default.isUUID(videoPlaylistId, 4)) {
       res.status(HttpStatusCode.NOT_FOUND_404)
@@ -34,9 +32,9 @@ export class PlaylistHtml {
     }
 
     return this.buildPlaylistHTML({
+      req,
       html,
       playlist: videoPlaylist,
-      addEmbedInfo: true,
       addOG: true,
       addTwitterCard: true,
       isEmbed: false,
@@ -46,9 +44,7 @@ export class PlaylistHtml {
   }
 
   @Memoize({ maxAge: MEMOIZE_TTL.EMBED_HTML })
-  static async getEmbedPlaylistHTML (playlistIdArg: string) {
-    const playlistId = toCompleteUUID(playlistIdArg)
-
+  static async getEmbedPlaylistHTML (playlistId: string) {
     const playlistPromise: Promise<MVideoPlaylistFull> = validator.default.isInt(playlistId) || validator.default.isUUID(playlistId, 4)
       ? VideoPlaylistModel.loadWithAccountAndChannel(playlistId, null)
       : Promise.resolve(undefined)
@@ -60,9 +56,10 @@ export class PlaylistHtml {
     }
 
     return this.buildPlaylistHTML({
+      req: null,
+
       html,
       playlist,
-      addEmbedInfo: true,
       addOG: false,
       addTwitterCard: false,
       isEmbed: true,
@@ -77,37 +74,24 @@ export class PlaylistHtml {
   // ---------------------------------------------------------------------------
 
   private static buildPlaylistHTML (options: {
+    req: express.Request
+
     html: string
     playlist: MVideoPlaylistFull
 
     addOG: boolean
     addTwitterCard: boolean
-    addEmbedInfo: boolean
 
     isEmbed: boolean
 
     currentQuery: Record<string, string>
   }) {
-    const { html, playlist, addEmbedInfo, addOG, addTwitterCard, isEmbed, currentQuery = {} } = options
+    const { req, html, playlist, addOG, addTwitterCard, isEmbed, currentQuery = {} } = options
     const escapedTruncatedDescription = TagsHtml.buildEscapedTruncatedDescription(playlist.description)
+    const thumbnail = playlist.getBestThumbnail('16:9')
 
     let htmlResult = TagsHtml.addTitleTag(html, playlist.name)
     htmlResult = TagsHtml.addDescriptionTag(htmlResult, escapedTruncatedDescription)
-
-    const list = { numberOfItems: playlist.get('videosLength') as number }
-    const schemaType = 'ItemList'
-
-    const twitterCard = addTwitterCard
-      ? 'player'
-      : undefined
-
-    const ogType = addOG
-      ? 'video' as 'video'
-      : undefined
-
-    const embed = addEmbedInfo
-      ? { url: WEBSERVER.URL + playlist.getEmbedStaticPath(), createdAt: playlist.createdAt.toISOString() }
-      : undefined
 
     return TagsHtml.addTags(htmlResult, {
       url: WEBSERVER.URL + playlist.getWatchStaticPath(),
@@ -118,24 +102,43 @@ export class PlaylistHtml {
 
       forbidIndexation: isEmbed
         ? playlist.privacy !== VideoPlaylistPrivacy.PUBLIC && playlist.privacy !== VideoPlaylistPrivacy.UNLISTED
-        : !playlist.isOwned() || playlist.privacy !== VideoPlaylistPrivacy.PUBLIC,
+        : !playlist.isLocal() || playlist.privacy !== VideoPlaylistPrivacy.PUBLIC,
 
       embedIndexation: isEmbed,
 
-      image: playlist.hasThumbnail()
-        ? { url: playlist.getThumbnailUrl(), width: playlist.Thumbnail.width, height: playlist.Thumbnail.height }
+      image: thumbnail
+        ? { url: playlist.getThumbnailUrl(), width: thumbnail.width, height: thumbnail.height }
         : undefined,
 
-      list,
+      list: { numberOfItems: playlist.get('videosLength') as number },
 
-      schemaType,
-      ogType,
-      twitterCard,
+      schemaType: 'ItemList',
 
-      embed,
-      oembedUrl: this.getOEmbedUrl(playlist, currentQuery),
+      ogType: addOG
+        ? 'video' as 'video'
+        : undefined,
 
-      rssFeeds: getDefaultRSSFeeds(WEBSERVER.URL, CONFIG.INSTANCE.NAME)
+      twitterCard: addTwitterCard
+        ? 'player'
+        : undefined,
+
+      videoOrPlaylist: {
+        embedUrl: WEBSERVER.URL + playlist.getEmbedStaticPath(),
+        oembedUrl: this.getOEmbedUrl(playlist, currentQuery),
+        createdAt: playlist.createdAt.toISOString(),
+        updatedAt: playlist.updatedAt.toISOString(),
+
+        channel: playlist.VideoChannel
+          ? {
+            displayName: playlist.VideoChannel.name,
+            url: playlist.VideoChannel.getClientUrl(false)
+          }
+          : undefined
+      },
+
+      rssFeeds: req
+        ? getPlaylistRSSFeeds({ displayName: playlist.name, id: playlist.id }, req)
+        : []
     }, { playlist })
   }
 

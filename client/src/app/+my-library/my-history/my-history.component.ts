@@ -1,4 +1,5 @@
-import { Component, OnInit, inject, viewChild } from '@angular/core'
+import { Component, DestroyRef, inject, OnInit, viewChild } from '@angular/core'
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop'
 import { FormsModule } from '@angular/forms'
 import {
   AuthService,
@@ -17,7 +18,7 @@ import { Video } from '@app/shared/shared-main/video/video.model'
 import { MiniatureDisplayOptions } from '@app/shared/shared-video-miniature/video-miniature.component'
 import { VideosSelectionComponent } from '@app/shared/shared-video-miniature/videos-selection.component'
 import { tap } from 'rxjs/operators'
-import { AdvancedInputFilterComponent } from '../../shared/shared-forms/advanced-input-filter.component'
+import { SearchInputComponent } from '../../shared/shared-forms/search-input.component'
 import { InputSwitchComponent } from '../../shared/shared-forms/input-switch.component'
 import { DeleteButtonComponent } from '../../shared/shared-main/buttons/delete-button.component'
 import { PeerTubeTemplateDirective } from '../../shared/shared-main/common/peertube-template.directive'
@@ -27,7 +28,7 @@ import { PeerTubeTemplateDirective } from '../../shared/shared-main/common/peert
   styleUrls: [ './my-history.component.scss' ],
   imports: [
     ButtonComponent,
-    AdvancedInputFilterComponent,
+    SearchInputComponent,
     InputSwitchComponent,
     FormsModule,
     VideosSelectionComponent,
@@ -41,6 +42,7 @@ export class MyHistoryComponent implements OnInit, DisableForReuseHook {
   private notifier = inject(Notifier)
   private confirmService = inject(ConfirmService)
   private userHistoryService = inject(UserHistoryService)
+  private destroyRef = inject(DestroyRef)
 
   readonly videosSelection = viewChild<VideosSelectionComponent>('videosSelection')
 
@@ -77,6 +79,7 @@ export class MyHistoryComponent implements OnInit, DisableForReuseHook {
     this.user = this.authService.getUser()
 
     this.authService.userInformationLoaded
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.videosHistoryEnabled = this.user.videosHistoryEnabled)
   }
 
@@ -124,7 +127,7 @@ export class MyHistoryComponent implements OnInit, DisableForReuseHook {
           this.authService.refreshUserInformation()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -136,7 +139,7 @@ export class MyHistoryComponent implements OnInit, DisableForReuseHook {
           updatePaginationOnDelete(this.pagination)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -155,7 +158,7 @@ export class MyHistoryComponent implements OnInit, DisableForReuseHook {
           this.reloadData()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 

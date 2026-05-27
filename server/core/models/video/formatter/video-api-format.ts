@@ -2,7 +2,6 @@ import { getResolutionLabel } from '@peertube/peertube-core-utils'
 import {
   Video,
   VideoAdditionalAttributes,
-  VideoCommentPolicy,
   VideoDetails,
   VideoFile,
   VideoInclude,
@@ -10,15 +9,16 @@ import {
   VideoStreamingPlaylist
 } from '@peertube/peertube-models'
 import { uuidToShort } from '@peertube/peertube-node-utils'
-import { generateMagnetUri } from '@server/helpers/webtorrent.js'
 import { tracer } from '@server/lib/opentelemetry/tracing.js'
 import { getHLSResolutionPlaylistFilename } from '@server/lib/paths.js'
+import { VideoStatsManager } from '@server/lib/stats/video-stats-manager.js'
 import { getLocalVideoFileMetadataUrl } from '@server/lib/video-urls.js'
-import { VideoViewsManager } from '@server/lib/views/video-views-manager.js'
+import { generateMagnetUri } from '@server/lib/webtorrent.js'
 import { isArray } from '../../../helpers/custom-validators/misc.js'
 import {
   VIDEO_CATEGORIES,
   VIDEO_COMMENTS_POLICY,
+  VIDEO_EMBED_PRIVACY_POLICIES,
   VIDEO_LANGUAGES,
   VIDEO_LICENCES,
   VIDEO_PRIVACIES,
@@ -40,22 +40,26 @@ export type VideoFormattingJSONOptions = {
     source?: boolean
     blockedOwner?: boolean
     automaticTags?: boolean
+    liveSchedules?: boolean
+    tags?: boolean
   }
 }
 
-export function guessAdditionalAttributesFromQuery (query: Pick<VideosCommonQueryAfterSanitize, 'include'>): VideoFormattingJSONOptions {
-  if (!query?.include) return {}
-
+export function guessAdditionalAttributesFromQuery (
+  query: Pick<VideosCommonQueryAfterSanitize, 'include' | 'includeScheduledLive'>
+): VideoFormattingJSONOptions {
   return {
     additionalAttributes: {
-      state: !!(query.include & VideoInclude.NOT_PUBLISHED_STATE),
+      state: query.includeScheduledLive || !!(query.include & VideoInclude.NOT_PUBLISHED_STATE),
       waitTranscoding: !!(query.include & VideoInclude.NOT_PUBLISHED_STATE),
       scheduledUpdate: !!(query.include & VideoInclude.NOT_PUBLISHED_STATE),
       blacklistInfo: !!(query.include & VideoInclude.BLACKLISTED),
       files: !!(query.include & VideoInclude.FILES),
       source: !!(query.include & VideoInclude.SOURCE),
       blockedOwner: !!(query.include & VideoInclude.BLOCKED_OWNER),
-      automaticTags: !!(query.include & VideoInclude.AUTOMATIC_TAGS)
+      automaticTags: !!(query.include & VideoInclude.AUTOMATIC_TAGS),
+      tags: !!(query.include & VideoInclude.TAGS),
+      liveSchedules: query.includeScheduledLive
     }
   }
 }
@@ -99,22 +103,28 @@ export function videoModelToFormattedJSON (video: MVideoFormattable, options: Vi
     nsfwSummary: video.nsfwSummary,
 
     truncatedDescription: video.getTruncatedDescription(),
-    description: options && options.completeDescription === true
+    description: options?.completeDescription === true
       ? video.description
       : video.getTruncatedDescription(),
 
-    isLocal: video.isOwned(),
+    isLocal: video.isLocal(),
     duration: video.duration,
 
     aspectRatio: video.aspectRatio,
 
     views: video.views,
-    viewers: VideoViewsManager.Instance.getTotalViewersOf(video),
+    viewers: VideoStatsManager.Instance.getTotalViewersOf(video),
+
+    downloads: video.downloads,
 
     likes: video.likes,
     dislikes: video.dislikes,
-    thumbnailPath: video.getMiniatureStaticPath(),
-    previewPath: video.getPreviewStaticPath(),
+
+    thumbnailPath: video.getSmallestThumbnailStaticPath('16:9'),
+    previewPath: video.getBestThumbnailStaticPath('16:9'),
+
+    thumbnails: (video.Thumbnails || []).map(t => t.toFormattedJSON()),
+
     embedPath: video.getEmbedStaticPath(),
     createdAt: video.createdAt,
     updatedAt: video.updatedAt,
@@ -149,6 +159,7 @@ export function videoModelToFormattedDetailsJSON (video: MVideoFormattableDetail
   const videoJSON = video.toFormattedJSON({
     completeDescription: true,
     additionalAttributes: {
+      liveSchedules: true,
       scheduledUpdate: true,
       blacklistInfo: true,
       files: true
@@ -167,8 +178,6 @@ export function videoModelToFormattedDetailsJSON (video: MVideoFormattableDetail
     account: video.VideoChannel.Account.toFormattedJSON(),
     tags,
 
-    // TODO: remove, deprecated in PeerTube 6.2
-    commentsEnabled: video.commentsPolicy !== VideoCommentPolicy.DISABLED,
     commentsPolicy: {
       id: video.commentsPolicy,
       label: VIDEO_COMMENTS_POLICY[video.commentsPolicy]
@@ -176,13 +185,20 @@ export function videoModelToFormattedDetailsJSON (video: MVideoFormattableDetail
 
     downloadEnabled: video.downloadEnabled,
     waitTranscoding: video.waitTranscoding,
+
     inputFileUpdatedAt: video.inputFileUpdatedAt,
+
     state: {
       id: video.state,
       label: getStateLabel(video.state)
     },
 
-    trackerUrls: video.getTrackerUrls()
+    trackerUrls: video.getTrackerUrls(),
+
+    embedPrivacyPolicy: {
+      id: video.embedPrivacyPolicy,
+      label: VIDEO_EMBED_PRIVACY_POLICIES[video.embedPrivacyPolicy]
+    }
   }
 
   span.end()
@@ -364,6 +380,14 @@ function buildAdditionalAttributes (video: MVideoFormattable, options: VideoForm
 
   if (add?.automaticTags === true) {
     result.automaticTags = (video.VideoAutomaticTags || []).map(t => t.AutomaticTag.name)
+  }
+
+  if (add?.liveSchedules === true) {
+    result.liveSchedules = (video.VideoLive?.LiveSchedules || []).map(s => s.toFormattedJSON())
+  }
+
+  if (add?.tags === true) {
+    result.tags = (video.Tags || []).map(t => t.name)
   }
 
   return result

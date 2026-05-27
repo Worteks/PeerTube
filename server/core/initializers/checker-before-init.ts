@@ -1,5 +1,5 @@
-import config from 'config'
 import { promisify0 } from '@peertube/peertube-core-utils'
+import config from 'config'
 import { parseSemVersion } from '../helpers/core-utils.js'
 import { logger } from '../helpers/logger.js'
 
@@ -14,6 +14,7 @@ export function checkMissedConfig () {
     'webserver.hostname',
     'webserver.port',
     'secrets.peertube',
+    'http_timeouts.request',
     'trust_proxy',
     'oauth2.token_lifetime.access_token',
     'oauth2.token_lifetime.refresh_token',
@@ -22,6 +23,10 @@ export function checkMissedConfig () {
     'database.username',
     'database.password',
     'database.pool.max',
+    'database.ssl_settings.reject_unauthorized',
+    'database.ssl_settings.ca',
+    'database.ssl_settings.cert',
+    'database.ssl_settings.key',
     'smtp.hostname',
     'smtp.port',
     'smtp.username',
@@ -42,6 +47,7 @@ export function checkMissedConfig () {
     'storage.streaming_playlists',
     'storage.plugins',
     'storage.well_known',
+    'storage.uploads',
     'log.level',
     'log.rotation.enabled',
     'log.rotation.max_file_size',
@@ -59,18 +65,16 @@ export function checkMissedConfig () {
     'open_telemetry.tracing.jaeger_exporter.endpoint',
     'open_telemetry.metrics.http_request_duration.enabled',
     'user.history.videos.enabled',
+    'user.disable_root_auth',
     'user.video_quota',
     'user.video_quota_daily',
+    'user.password_constraints.min_length',
     'video_channels.max_per_user',
     'csp.enabled',
     'csp.report_only',
     'csp.report_uri',
     'security.frameguard.enabled',
     'security.powered_by_header.enabled',
-    'cache.previews.size',
-    'cache.captions.size',
-    'cache.torrents.size',
-    'cache.storyboards.size',
     'admin.email',
     'contact_form.enabled',
     'signup.enabled',
@@ -86,6 +90,7 @@ export function checkMissedConfig () {
     'transcoding.original_file.keep',
     'transcoding.threads',
     'transcoding.allow_additional_extensions',
+    'transcoding.always_transcode_podcast_optimized_audio',
     'transcoding.web_videos.enabled',
     'transcoding.hls.enabled',
     'transcoding.profile',
@@ -115,6 +120,7 @@ export function checkMissedConfig () {
     'import.videos.timeout',
     'import.videos.http.force_ipv4',
     'import.videos.http.proxies',
+    'import.videos.http.cookies.enabled',
     'import.video_channel_synchronization.enabled',
     'import.video_channel_synchronization.max_per_user',
     'import.video_channel_synchronization.check_interval',
@@ -123,14 +129,19 @@ export function checkMissedConfig () {
     'auto_blacklist.videos.of_users.enabled',
     'trending.videos.interval_days',
     'client.videos.miniature.prefer_author_display_name',
+    'client.browse_videos.default_sort',
+    'client.browse_videos.default_scope',
     'client.menu.login.redirect_on_single_external_auth',
+    'client.header.hide_instance_name',
     'defaults.publish.download_enabled',
     'defaults.publish.comments_policy',
     'defaults.publish.privacy',
     'defaults.publish.licence',
     'defaults.player.auto_play',
+    'defaults.player.theme',
     'instance.name',
     'instance.short_description',
+    'instance.default_language',
     'instance.description',
     'instance.terms',
     'instance.default_client_route',
@@ -143,9 +154,11 @@ export function checkMissedConfig () {
     'instance.social.external_link',
     'instance.social.mastodon_link',
     'instance.social.bluesky_link',
+    'instance.social.x_link',
     'services.twitter.username',
     'followers.instance.enabled',
     'followers.instance.manual_approval',
+    'followers.channels.enabled',
     'tracker.enabled',
     'tracker.private',
     'tracker.reject_too_many_announces',
@@ -179,6 +192,7 @@ export function checkMissedConfig () {
     'object_storage.enabled',
     'object_storage.endpoint',
     'object_storage.region',
+    'object_storage.force_path_style',
     'object_storage.upload_acl.public',
     'object_storage.upload_acl.private',
     'object_storage.proxy.proxify_private_files',
@@ -247,17 +261,21 @@ export function checkMissedConfig () {
     'live.transcoding.always_transcode_original_resolution',
     'live.transcoding.fps.max',
     'live.transcoding.remote_runners.enabled',
+    'live.dvr.max_window',
     'storyboards.enabled',
     'webrtc.stun_servers',
     'nsfw_flags_settings.enabled',
-    'download_generate_video.max_parallel_downloads'
+    'download.max_total_bytes_per_second',
+    'download.max_bytes_per_ip_per_second',
+    'download_generate_video.max_parallel_downloads',
+    'video_comments.accept_remote_comments'
   ]
 
   const requiredAlternatives = [
     [ // set
       [ 'redis.hostname', 'redis.port' ], // alternative
       [ 'redis.socket' ],
-      [ 'redis.sentinel.master_name', 'redis.sentinel.sentinels[0].hostname', 'redis.sentinel.sentinels[0].port' ]
+      [ 'redis.sentinel.master_name', 'redis.sentinel.sentinels[0].host', 'redis.sentinel.sentinels[0].port' ]
     ]
   ]
   const miss: string[] = []
@@ -310,11 +328,15 @@ export async function checkFFmpeg (CONFIG: { TRANSCODING: { ENABLED: boolean } }
 
 export function checkNodeVersion () {
   const v = process.version
-  const { major } = parseSemVersion(v)
+  const { major, minor } = parseSemVersion(v)
 
-  logger.debug('Checking NodeJS version %s.', v)
+  logger.debug(`Checking NodeJS version ${v}`)
 
-  if (major <= 12) {
-    throw new Error('Your NodeJS version ' + v + ' is not supported. Please upgrade.')
+  if (major < 22) {
+    throw new Error(`Your NodeJS version ${v} is not supported. Please upgrade to NodeJS 22 or NodeJS 24`)
+  }
+
+  if (major === 22 && minor < 12) {
+    throw new Error(`NodeJS >= v22.12 or NodeJS 24 is required`)
   }
 }

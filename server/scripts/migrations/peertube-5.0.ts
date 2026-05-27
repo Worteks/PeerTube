@@ -1,10 +1,10 @@
 import { ensureDir } from 'fs-extra/esm'
 import { Op } from 'sequelize'
-import { updateTorrentMetadata } from '@server/helpers/webtorrent.js'
+import { updateTorrentMetadata } from '@server/lib/webtorrent.js'
 import { DIRECTORIES } from '@server/initializers/constants.js'
 import { moveFilesIfPrivacyChanged } from '@server/lib/video-privacy.js'
 import { VideoModel } from '@server/models/video/video.js'
-import { MVideoFullLight } from '@server/types/models/index.js'
+import { MVideoFull } from '@server/types/models/index.js'
 import { VideoPrivacy } from '@peertube/peertube-models'
 import { initDatabaseModels } from '@server/initializers/database.js'
 
@@ -55,7 +55,7 @@ async function run () {
   }
 }
 
-async function updateTorrents (video: MVideoFullLight) {
+async function updateTorrents (video: MVideoFull) {
   for (const file of video.VideoFiles) {
     await updateTorrentMetadata(video, file)
 

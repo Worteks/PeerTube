@@ -1,4 +1,4 @@
-import { NgClass, NgFor } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { Component, ElementRef, HostListener, inject, input, OnChanges, OnInit, output, SimpleChanges, viewChild } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { Notifier } from '@app/core'
@@ -12,7 +12,7 @@ import { Video, VideoCaption } from '@peertube/peertube-models'
 import { parse } from '@plussub/srt-vtt-parser'
 import debug from 'debug'
 import { debounceTime, distinctUntilChanged, Subject } from 'rxjs'
-import { SelectOptionsItem } from 'src/types'
+import { SelectOptionsItem } from '@pt-types'
 
 const debugLogger = debug('peertube:watch:VideoTranscriptionComponent')
 
@@ -32,7 +32,6 @@ type Segment = {
   imports: [
     NgClass,
     GlobalIconComponent,
-    NgFor,
     NgbCollapse,
     FormsModule,
     SelectOptionsComponent,
@@ -166,7 +165,7 @@ export class VideoTranscriptionComponent implements OnInit, OnChanges {
           }
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 

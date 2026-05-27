@@ -2,6 +2,7 @@ import { arrayify } from '@peertube/peertube-core-utils'
 import { ContextType } from '@peertube/peertube-models'
 import { ACTIVITY_PUB, REMOTE_SCHEME } from '@server/initializers/constants.js'
 import { isArray } from './custom-validators/misc.js'
+import { logger } from './logger.js'
 import { buildDigest } from './peertube-crypto.js'
 import type { signJsonLDObject } from './peertube-jsonld.js'
 import { doJSONRequest } from './requests.js'
@@ -36,7 +37,13 @@ export async function signAndContextify<T> (options: {
     ? await activityPubContextify(data, contextType, contextFilter)
     : data
 
-  return signerFunction({ byActor, data: activity })
+  try {
+    return await signerFunction({ byActor, data: activity })
+  } catch (err) {
+    logger.debug('Cannot sign activity', { activity, err })
+
+    throw err
+  }
 }
 
 export async function getApplicationActorOfHost (host: string) {
@@ -50,14 +57,14 @@ export async function getApplicationActorOfHost (host: string) {
   return found?.href || undefined
 }
 
-export function getAPPublicValue (): 'https://www.w3.org/ns/activitystreams#Public' {
-  return 'https://www.w3.org/ns/activitystreams#Public'
+export function getAPPublicValue () {
+  return 'https://www.w3.org/ns/activitystreams#Public' as const
 }
 
-export function hasAPPublic (toOrCC: string[] | string) {
+export function hasAPPublic (collection: string[] | string) {
   const publicValue = getAPPublicValue()
 
-  return arrayify(toOrCC).some(f => f === 'as:Public' || publicValue)
+  return arrayify(collection).some(f => f === 'as:Public' || publicValue)
 }
 
 // ---------------------------------------------------------------------------
@@ -90,8 +97,13 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
       '@type': 'sc:Number',
       '@id': 'pt:latencyMode'
     },
+    dvrWindow: {
+      '@type': 'sc:Duration',
+      '@id': 'pt:dvrWindow'
+    },
 
     Infohash: 'pt:Infohash',
+
     SensitiveTag: 'pt:SensitiveTag',
 
     tileWidth: {
@@ -117,14 +129,24 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
     },
 
     originallyPublishedAt: 'sc:datePublished',
+    schedules: 'sc:eventSchedule',
+    startDate: 'sc:startDate',
+
+    embedUrl: 'sc:embedUrl',
 
     uploadDate: 'sc:uploadDate',
 
     hasParts: 'sc:hasParts',
 
+    playerSettings: 'pt:playerSettings',
+
     views: {
       '@type': 'sc:Number',
       '@id': 'pt:views'
+    },
+    downloads: {
+      '@type': 'sc:Number',
+      '@id': 'pt:downloads'
     },
     state: {
       '@type': 'sc:Number',
@@ -137,12 +159,6 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
     fps: {
       '@type': 'sc:Number',
       '@id': 'pt:fps'
-    },
-
-    // Keep for federation compatibility
-    commentsEnabled: {
-      '@type': 'sc:Boolean',
-      '@id': 'pt:commentsEnabled'
     },
 
     canReply: 'pt:canReply',
@@ -191,6 +207,10 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
       '@type': 'sc:Number',
       '@id': 'pt:position'
     },
+    videoChannelPosition: {
+      '@type': 'sc:Number',
+      '@id': 'pt:position'
+    },
     startTimestamp: {
       '@type': 'sc:Number',
       '@id': 'pt:startTimestamp'
@@ -223,6 +243,8 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
   }),
 
   Actor: buildContext({
+    playerSettings: 'pt:playerSettings',
+
     playlists: {
       '@id': 'pt:playlists',
       '@type': '@id'
@@ -233,7 +255,10 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
     },
 
     lemmy: 'https://join-lemmy.org/ns#',
-    postingRestrictedToMods: 'lemmy:postingRestrictedToMods'
+    postingRestrictedToMods: 'lemmy:postingRestrictedToMods',
+
+    toot: 'http://joinmastodon.org/ns#',
+    indexable: 'toot:indexable'
   }),
 
   WatchAction: buildContext({
@@ -290,6 +315,22 @@ const contextStore: { [id in ContextType]: (string | { [id: string]: string })[]
     hasPart: 'sc:hasPart',
     endOffset: 'sc:endOffset',
     startOffset: 'sc:startOffset'
+  }),
+
+  PlayerSettings: buildContext({
+    PlayerSettings: {
+      '@type': '@id',
+      '@id': 'pt:PlayerSettings'
+    },
+
+    theme: 'pt:theme'
+  }),
+
+  Download: buildContext({
+    DownloadAction: 'sc:DownloadAction',
+    InteractionCounter: 'sc:InteractionCounter',
+    interactionType: 'sc:interactionType',
+    userInteractionCount: 'sc:userInteractionCount'
   })
 }
 

@@ -1,4 +1,4 @@
-import { NgClass, NgFor, NgIf } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { Component, OnChanges, OnDestroy, OnInit, inject, input, output } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { AuthService, Notifier, User, UserService } from '@app/core'
@@ -15,7 +15,7 @@ import { VideoRecommendationService } from './video-recommendation.service'
   selector: 'my-recommended-videos',
   templateUrl: './recommended-videos.component.html',
   styleUrls: [ './recommended-videos.component.scss' ],
-  imports: [ NgClass, NgIf, NgbTooltip, InputSwitchComponent, FormsModule, NgFor, VideoMiniatureComponent ]
+  imports: [ NgClass, NgbTooltip, InputSwitchComponent, FormsModule, VideoMiniatureComponent ]
 })
 export class RecommendedVideosComponent implements OnInit, OnChanges, OnDestroy {
   private userService = inject(UserService)
@@ -85,7 +85,7 @@ export class RecommendedVideosComponent implements OnInit, OnChanges, OnDestroy 
             this.authService.refreshUserInformation()
           },
 
-          error: err => this.notifier.error(err.message)
+          error: err => this.notifier.handleError(err)
         })
     } else {
       this.userService.updateMyAnonymousProfile(details)
@@ -101,7 +101,7 @@ export class RecommendedVideosComponent implements OnInit, OnChanges, OnDestroy 
           this.gotRecommendations.emit(this.videos)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 }

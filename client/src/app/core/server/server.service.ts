@@ -1,7 +1,5 @@
-import { Observable, of, Subject } from 'rxjs'
-import { first, map, share, shareReplay, switchMap, tap } from 'rxjs/operators'
 import { HttpClient } from '@angular/common/http'
-import { Injectable, LOCALE_ID, inject } from '@angular/core'
+import { inject, Injectable, LOCALE_ID } from '@angular/core'
 import { getDevLocale, isOnDevLocale } from '@app/helpers'
 import { getCompleteLocale, isDefaultLocale, peertubeTranslate } from '@peertube/peertube-core-utils'
 import {
@@ -9,11 +7,14 @@ import {
   ServerConfig,
   ServerStats,
   VideoCommentPolicy,
-  VideoConstant,
+  ConstantLabel,
+  VideoLicenceType,
   VideoPlaylistPrivacyType,
   VideoPrivacyType
 } from '@peertube/peertube-models'
 import { logger } from '@root-helpers/logger'
+import { Observable, of, Subject } from 'rxjs'
+import { first, map, share, shareReplay, switchMap, tap } from 'rxjs/operators'
 import { environment } from '../../../environments/environment'
 
 @Injectable()
@@ -30,14 +31,13 @@ export class ServerService {
   configReloaded = new Subject<ServerConfig>()
 
   private localeObservable: Observable<any>
-  private videoLicensesObservable: Observable<VideoConstant<number>[]>
-  private videoCategoriesObservable: Observable<VideoConstant<number>[]>
-  private videoPrivaciesObservable: Observable<VideoConstant<VideoPrivacyType>[]>
-  private videoPlaylistPrivaciesObservable: Observable<VideoConstant<VideoPlaylistPrivacyType>[]>
-  private videoLanguagesObservable: Observable<VideoConstant<string>[]>
+  private videoLicensesObservable: Observable<ConstantLabel<VideoLicenceType>[]>
+  private videoCategoriesObservable: Observable<ConstantLabel<number>[]>
+  private videoPrivaciesObservable: Observable<ConstantLabel<VideoPrivacyType>[]>
+  private videoPlaylistPrivaciesObservable: Observable<ConstantLabel<VideoPlaylistPrivacyType>[]>
+  private videoLanguagesObservable: Observable<ConstantLabel<string>[]>
+  private videoTextLanguagesObservable: Observable<ConstantLabel<string>[]>
   private configObservable: Observable<ServerConfig>
-
-  private configReset = false
 
   private configLoaded = false
   private config: ServerConfig
@@ -68,13 +68,15 @@ export class ServerService {
 
   resetConfig () {
     this.configLoaded = false
-    this.configReset = true
+    this.configObservable = undefined
 
     // Notify config update
-    return this.getConfig()
+    return this.getConfig({ isReset: true })
   }
 
-  getConfig () {
+  getConfig (options: {
+    isReset?: boolean
+  } = {}) {
     if (this.configLoaded) return of(this.config)
 
     if (!this.configObservable) {
@@ -86,9 +88,8 @@ export class ServerService {
             this.configLoaded = true
           }),
           tap(config => {
-            if (this.configReset) {
+            if (options.isReset) {
               this.configReloaded.next(config)
-              this.configReset = false
             }
           }),
           share()
@@ -101,6 +102,18 @@ export class ServerService {
   getHTMLConfig () {
     return this.htmlConfig
   }
+
+  isRemoteRunnersEnabled () {
+    const config = this.getHTMLConfig()
+
+    return config.transcoding.remoteRunners.enabled ||
+      config.live.transcoding.remoteRunners.enabled ||
+      config.videoStudio.remoteRunners.enabled ||
+      config.videoTranscription.remoteRunners.enabled ||
+      config.storyboards.remoteRunners.enabled
+  }
+
+  // ---------------------------------------------------------------------------
 
   getCommentPolicies () {
     return of([
@@ -122,7 +135,11 @@ export class ServerService {
 
   getVideoCategories () {
     if (!this.videoCategoriesObservable) {
-      this.videoCategoriesObservable = this.loadAttributeEnum<number>(ServerService.BASE_VIDEO_URL, 'categories', true)
+      this.videoCategoriesObservable = this.loadAttributeEnum<number>({
+        baseUrl: ServerService.BASE_VIDEO_URL,
+        attributeName: 'categories',
+        sort: true
+      })
     }
 
     return this.videoCategoriesObservable.pipe(first())
@@ -130,7 +147,10 @@ export class ServerService {
 
   getVideoLicences () {
     if (!this.videoLicensesObservable) {
-      this.videoLicensesObservable = this.loadAttributeEnum<number>(ServerService.BASE_VIDEO_URL, 'licences')
+      this.videoLicensesObservable = this.loadAttributeEnum<VideoLicenceType>({
+        baseUrl: ServerService.BASE_VIDEO_URL,
+        attributeName: 'licences'
+      })
     }
 
     return this.videoLicensesObservable.pipe(first())
@@ -138,15 +158,35 @@ export class ServerService {
 
   getVideoLanguages () {
     if (!this.videoLanguagesObservable) {
-      this.videoLanguagesObservable = this.loadAttributeEnum<string>(ServerService.BASE_VIDEO_URL, 'languages', true)
+      this.videoLanguagesObservable = this.loadAttributeEnum<string>({
+        baseUrl: ServerService.BASE_VIDEO_URL,
+        attributeName: 'languages',
+        sort: true
+      })
     }
 
     return this.videoLanguagesObservable.pipe(first())
   }
 
+  getVideoTextLanguages () {
+    if (!this.videoTextLanguagesObservable) {
+      this.videoTextLanguagesObservable = this.loadAttributeEnum<string>({
+        baseUrl: ServerService.BASE_VIDEO_URL,
+        attributeName: 'languages',
+        query: { scope: 'subtitle' },
+        sort: true
+      })
+    }
+
+    return this.videoTextLanguagesObservable.pipe(first())
+  }
+
   getVideoPrivacies () {
     if (!this.videoPrivaciesObservable) {
-      this.videoPrivaciesObservable = this.loadAttributeEnum<VideoPrivacyType>(ServerService.BASE_VIDEO_URL, 'privacies')
+      this.videoPrivaciesObservable = this.loadAttributeEnum<VideoPrivacyType>({
+        baseUrl: ServerService.BASE_VIDEO_URL,
+        attributeName: 'privacies'
+      })
     }
 
     return this.videoPrivaciesObservable.pipe(first())
@@ -155,8 +195,7 @@ export class ServerService {
   getVideoPlaylistPrivacies () {
     if (!this.videoPlaylistPrivaciesObservable) {
       this.videoPlaylistPrivaciesObservable = this.loadAttributeEnum<VideoPlaylistPrivacyType>(
-        ServerService.BASE_VIDEO_PLAYLIST_URL,
-        'privacies'
+        { baseUrl: ServerService.BASE_VIDEO_PLAYLIST_URL, attributeName: 'privacies' }
       )
     }
 
@@ -184,19 +223,22 @@ export class ServerService {
     return this.http.get<ServerStats>(ServerService.BASE_STATS_URL)
   }
 
-  private loadAttributeEnum<T extends string | number> (
-    baseUrl: string,
-    attributeName: 'categories' | 'licences' | 'languages' | 'privacies',
-    sort = false
-  ) {
+  private loadAttributeEnum<T extends string | number> (options: {
+    baseUrl: string
+    attributeName: 'categories' | 'licences' | 'languages' | 'privacies'
+    query?: Record<string, string>
+    sort?: boolean
+  }) {
+    const { baseUrl, attributeName, query, sort = false } = options
+
     return this.getServerLocale()
       .pipe(
         switchMap(translations => {
-          return this.http.get<{ [id: string]: string }>(baseUrl + attributeName)
+          return this.http.get<{ [id: string]: string }>(baseUrl + attributeName, { params: query })
             .pipe(map(data => ({ data, translations })))
         }),
         map(({ data, translations }) => {
-          const hashToPopulate: VideoConstant<T>[] = Object.keys(data)
+          const hashToPopulate: ConstantLabel<T>[] = Object.keys(data)
             .map(dataKey => {
               const label = data[dataKey]
 

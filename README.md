@@ -120,18 +120,15 @@ guide](https://docs.joinpeertube.org/contribute/getting-started) to know how, it
 
 You can also join the cheerful bunch that makes our community:
 
-* Chat<a name="contact"></a>:
-  * Matrix (bridged on IRC and [Discord](https://discord.gg/wj8DDUT)) : **[#peertube:matrix.org](https://matrix.to/#/#peertube:matrix.org)**
-  * IRC : **[#peertube on irc.libera.chat:6697](https://web.libera.chat/#peertube)**
-* Forum:
-  * Framacolibri: [https://framacolibri.org/c/peertube](https://framacolibri.org/c/peertube)
+* Matrix (bridged on [Discord](https://discord.gg/wj8DDUT)): **[#peertube:matrix.org](https://matrix.to/#/#peertube:matrix.org)**
+* Forum: [https://framacolibri.org/c/peertube](https://framacolibri.org/c/peertube)
 
 Feel free to reach out if you have any questions or ideas! :speech_balloon:
 
 :package: Create your own instance
 ----------------------------------------------------------------
 
-See the [production guide](https://github.com/Chocobozzz/PeerTube/blob/develop/support/doc/production.md), which is the recommended way to install or upgrade PeerTube. For hardware requirements, see [Should I have a big server to run PeerTube?](https://joinpeertube.org/faq#should-i-have-a-big-server-to-run-peertube) in the FAQ.
+See the [production guide](https://docs.joinpeertube.org/install/any-os), which is the recommended way to install or upgrade PeerTube. For hardware requirements, see [Should I have a big server to run PeerTube?](https://joinpeertube.org/faq#should-i-have-a-big-server-to-run-peertube) in the FAQ.
 
 See the [community packages](https://docs.joinpeertube.org/install/unofficial), which cover various platforms (including [YunoHost](https://install-app.yunohost.org/?app=peertube) and [Docker](https://github.com/Chocobozzz/PeerTube/blob/develop/support/doc/docker.md)).
 
@@ -172,7 +169,7 @@ See our [ActivityPub documentation](https://docs.joinpeertube.org/api/activitypu
 
 ### Code
 
-Copyright (C) 2015-2024 PeerTube Contributors (see [CREDITS.md](/CREDITS.md))
+Copyright (C) 2015-2025 PeerTube Contributors (see [CREDITS.md](/CREDITS.md))
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published

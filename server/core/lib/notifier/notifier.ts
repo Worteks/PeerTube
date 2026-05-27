@@ -1,5 +1,5 @@
 import { UserNotificationSettingValue, UserNotificationSettingValueType } from '@peertube/peertube-models'
-import { MRegistration, MUser, MUserDefault } from '@server/types/models/user/index.js'
+import { MRegistration, MUser, MUserDefault, MUserWithNotificationSetting } from '@server/types/models/user/index.js'
 import { MVideoBlacklistLightVideo, MVideoBlacklistVideo } from '@server/types/models/video/video-blacklist.js'
 import { logger, loggerTagsFactory } from '../../helpers/logger.js'
 import { CONFIG } from '../../initializers/config.js'
@@ -8,19 +8,32 @@ import {
   MAbuseMessage,
   MActorFollowFull,
   MApplication,
+  MChangeOwnershipFull,
+  MChannelAccountDefault,
+  MChannelCollaboratorAccount,
+  MChannelDefault,
   MCommentOwnerVideo,
   MPlugin,
   MVideoAccountLight,
   MVideoCaptionVideo,
-  MVideoFullLight
+  MVideoFull,
+  MVideoWithSchedule
 } from '../../types/models/index.js'
 import { JobQueue } from '../job-queue/index.js'
 import { PeerTubeSocket } from '../peertube-socket.js'
 import { Hooks } from '../plugins/hooks.js'
+import { RequestVideoChangeOwnership } from './shared/change-ownership/request-video-change-ownership.js'
+import { VideoChangeOwnershipAccepted } from './shared/change-ownership/video-change-ownership-accepted.js'
+import { VideoChangeOwnershipRejected } from './shared/change-ownership/video-change-ownership-rejected.js'
+import { AcceptedToCollaborateToChannel } from './shared/channel/accepted-to-collaborate-to-channel.js'
+import { InvitedToCollaborateToChannel } from './shared/channel/invited-to-collaborate-to-channel.js'
+import { RefusedToCollaborateToChannel } from './shared/channel/refused-to-collaborate-to-channel.js'
 import {
   AbstractNotification,
   AbuseStateChangeForReporter,
   AutoFollowForInstance,
+  ChannelChangeOwnershipAccepted,
+  ChannelChangeOwnershipRejected,
   CommentMention,
   DirectRegistrationForModerators,
   FollowForInstance,
@@ -41,6 +54,7 @@ import {
   OwnedPublicationAfterScheduleUpdate,
   OwnedPublicationAfterTranscoding,
   RegistrationRequestForModerators,
+  RequestChannelChangeOwnership,
   StudioEditionFinishedForOwner,
   UnblacklistForOwner,
   VideoTranscriptionGeneratedForOwner
@@ -49,30 +63,49 @@ import {
 const lTags = loggerTagsFactory('notifier')
 
 class Notifier {
-
   private readonly notificationModels = {
     newVideoOrLive: [ NewVideoOrLiveForSubscribers ],
+
     publicationAfterTranscoding: [ OwnedPublicationAfterTranscoding ],
     publicationAfterScheduleUpdate: [ OwnedPublicationAfterScheduleUpdate ],
     publicationAfterAutoUnblacklist: [ OwnedPublicationAfterAutoUnblacklist ],
+    videoStudioEditionFinished: [ StudioEditionFinishedForOwner ],
+    videoTranscriptionGenerated: [ VideoTranscriptionGeneratedForOwner ],
+
     newComment: [ CommentMention, NewCommentForVideoOwner ],
     commentApproval: [ CommentMention ],
+
     newAbuse: [ NewAbuseForModerators ],
+    abuseStateChange: [ AbuseStateChangeForReporter ],
+    newAbuseMessage: [ NewAbuseMessageForReporter, NewAbuseMessageForModerators ],
+
     newBlacklist: [ NewBlacklistForOwner ],
+    newAutoBlacklist: [ NewAutoBlacklistForModerators ],
     unblacklist: [ UnblacklistForOwner ],
+
     importFinished: [ ImportFinishedForOwner ],
+
     directRegistration: [ DirectRegistrationForModerators ],
     registrationRequest: [ RegistrationRequestForModerators ],
+
     userFollow: [ FollowForUser ],
     instanceFollow: [ FollowForInstance ],
     autoInstanceFollow: [ AutoFollowForInstance ],
-    newAutoBlacklist: [ NewAutoBlacklistForModerators ],
-    abuseStateChange: [ AbuseStateChangeForReporter ],
-    newAbuseMessage: [ NewAbuseMessageForReporter, NewAbuseMessageForModerators ],
+
     newPeertubeVersion: [ NewPeerTubeVersionForAdmins ],
     newPluginVersion: [ NewPluginVersionForAdmins ],
-    videoStudioEditionFinished: [ StudioEditionFinishedForOwner ],
-    videoTranscriptionGenerated: [ VideoTranscriptionGeneratedForOwner ]
+
+    channelCollaboratorInvitation: [ InvitedToCollaborateToChannel ],
+    channelCollaborationAccepted: [ AcceptedToCollaborateToChannel ],
+    channelCollaborationRefused: [ RefusedToCollaborateToChannel ],
+
+    changeVideoOwnershipRequest: [ RequestVideoChangeOwnership ],
+    changeVideoOwnershipAccepted: [ VideoChangeOwnershipAccepted ],
+    changeVideoOwnershipRejected: [ VideoChangeOwnershipRejected ],
+
+    changeChannelOwnershipRequest: [ RequestChannelChangeOwnership ],
+    changeChannelOwnershipAccepted: [ ChannelChangeOwnershipAccepted ],
+    changeChannelOwnershipRejected: [ ChannelChangeOwnershipRejected ]
   }
 
   private static instance: Notifier
@@ -89,7 +122,7 @@ class Notifier {
       .catch(err => logger.error('Cannot notify subscribers of new video %s.', video.url, { err }))
   }
 
-  notifyOnVideoPublishedAfterTranscoding (video: MVideoFullLight): void {
+  notifyOnVideoPublishedAfterTranscoding (video: MVideoAccountLight & MVideoWithSchedule): void {
     const models = this.notificationModels.publicationAfterTranscoding
 
     logger.debug('Notify on published video after transcoding', { video: video.url, ...lTags() })
@@ -98,7 +131,7 @@ class Notifier {
       .catch(err => logger.error('Cannot notify owner that its video %s has been published after transcoding.', video.url, { err }))
   }
 
-  notifyOnVideoPublishedAfterScheduledUpdate (video: MVideoFullLight): void {
+  notifyOnVideoPublishedAfterScheduledUpdate (video: MVideoAccountLight & MVideoWithSchedule): void {
     const models = this.notificationModels.publicationAfterScheduleUpdate
 
     logger.debug('Notify on published video after scheduled update', { video: video.url, ...lTags() })
@@ -107,7 +140,7 @@ class Notifier {
       .catch(err => logger.error('Cannot notify owner that its video %s has been published after scheduled update.', video.url, { err }))
   }
 
-  notifyOnVideoPublishedAfterRemovedFromAutoBlacklist (video: MVideoFullLight): void {
+  notifyOnVideoPublishedAfterRemovedFromAutoBlacklist (video: MVideoAccountLight & MVideoWithSchedule): void {
     const models = this.notificationModels.publicationAfterAutoUnblacklist
 
     logger.debug('Notify on published video after being removed from auto blacklist', { video: video.url, ...lTags() })
@@ -163,13 +196,13 @@ class Notifier {
       .catch(err => logger.error('Cannot notify video owner of new video blacklist of %s.', videoBlacklist.Video.url, { err }))
   }
 
-  notifyOnVideoUnblacklist (video: MVideoFullLight): void {
+  notifyOnVideoUnblacklist (video: MVideoAccountLight): void {
     const models = this.notificationModels.unblacklist
 
     logger.debug('Notify on video unblacklist', { video: video.url, ...lTags() })
 
     this.sendNotifications(models, video)
-        .catch(err => logger.error('Cannot notify video owner of unblacklist of %s.', video.url, { err }))
+      .catch(err => logger.error('Cannot notify video owner of unblacklist of %s.', video.url, { err }))
   }
 
   notifyOnFinishedVideoImport (payload: ImportFinishedForOwnerPayload): void {
@@ -178,9 +211,9 @@ class Notifier {
     logger.debug('Notify on finished video import', { import: payload.videoImport.getTargetIdentifier(), ...lTags() })
 
     this.sendNotifications(models, payload)
-        .catch(err => {
-          logger.error('Cannot notify owner that its video import %s is finished.', payload.videoImport.getTargetIdentifier(), { err })
-        })
+      .catch(err => {
+        logger.error('Cannot notify owner that its video import %s is finished.', payload.videoImport.getTargetIdentifier(), { err })
+      })
   }
 
   notifyOnNewDirectRegistration (user: MUserDefault): void {
@@ -269,7 +302,7 @@ class Notifier {
       .catch(err => logger.error('Cannot notify on new plugin version %s.', plugin.name, { err }))
   }
 
-  notifyOfFinishedVideoStudioEdition (video: MVideoFullLight) {
+  notifyOfFinishedVideoStudioEdition (video: MVideoFull) {
     const models = this.notificationModels.videoStudioEditionFinished
 
     logger.debug('Notify on finished video studio edition', { video: video.url, ...lTags() })
@@ -288,7 +321,113 @@ class Notifier {
       .catch(err => logger.error('Cannot notify on generated video transcription %s of video %s.', caption.language, video.url, { err }))
   }
 
-  private async notify <T> (object: AbstractNotification<T>) {
+  notifyOfChannelCollaboratorInvitation (collaborator: MChannelCollaboratorAccount, channel: MChannelAccountDefault) {
+    const models = this.notificationModels.channelCollaboratorInvitation
+
+    const channelName = channel.Actor.preferredUsername
+    const collaboratorName = collaborator.Account.Actor.preferredUsername
+
+    logger.debug('Notify on channel collaborator invitation', { channelName, collaboratorName, ...lTags() })
+
+    this.sendNotifications(models, { channel, collaborator })
+      .catch(err => logger.error(`Cannot notify ${collaboratorName} of invitation to collaborate to channel ${channelName}`, { err }))
+  }
+
+  notifyOfAcceptedChannelCollaborator (collaborator: MChannelCollaboratorAccount, channel: MChannelDefault) {
+    const models = this.notificationModels.channelCollaborationAccepted
+
+    const channelName = channel.Actor.preferredUsername
+    const channelOwner = collaborator.Account.Actor.preferredUsername
+
+    logger.debug('Notify of accepted channel collaboration invitation', { channelName, channelOwner, ...lTags() })
+
+    this.sendNotifications(models, { channel, collaborator })
+      .catch(err => logger.error(`Cannot notify ${channelOwner} of accepted invitation to collaborate to channel ${channelName}`, { err }))
+  }
+
+  notifyOfRefusedChannelCollaborator (collaborator: MChannelCollaboratorAccount, channel: MChannelDefault) {
+    const models = this.notificationModels.channelCollaborationRefused
+
+    const channelName = channel.Actor.preferredUsername
+    const channelOwner = collaborator.Account.Actor.preferredUsername
+
+    logger.debug('Notify of refused channel collaboration invitation', { channelName, channelOwner, ...lTags() })
+
+    this.sendNotifications(models, { channel, collaborator })
+      .catch(err => logger.error(`Cannot notify ${channelOwner} of refused invitation to collaborate to channel ${channelName}`, { err }))
+  }
+
+  // ---------------------------------------------------------------------------
+  // Video ownership change notifications
+  // ---------------------------------------------------------------------------
+
+  notifyOfRequestedVideoOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeVideoOwnershipRequest
+
+    logger.debug('Notify on requested video ownership change', { id: changeOwnership.id, video: changeOwnership.Video.url, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify requested video ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  notifyOfAcceptedVideoOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeVideoOwnershipAccepted
+
+    logger.debug('Notify on accepted video ownership change', { id: changeOwnership.id, video: changeOwnership.Video.url, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify accepted video ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  notifyOfRejectedVideoOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeVideoOwnershipRejected
+
+    logger.debug('Notify on rejected video ownership change', { id: changeOwnership.id, video: changeOwnership.Video.url, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify rejected video ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel ownership change notifications
+  // ---------------------------------------------------------------------------
+
+  notifyOfRequestedChannelOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeChannelOwnershipRequest
+
+    const channelName = changeOwnership.VideoChannel.Actor.preferredUsername
+
+    logger.debug(`Notify on requested channel ${channelName} ownership change`, { id: changeOwnership.id, channelName, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify requested channel ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  notifyOfAcceptedChannelOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeChannelOwnershipAccepted
+
+    const channelName = changeOwnership.VideoChannel.Actor.preferredUsername
+
+    logger.debug(`Notify on accepted channel ${channelName} ownership change`, { id: changeOwnership.id, channelName, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify accepted channel ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  notifyOfRejectedChannelOwnershipChange (changeOwnership: MChangeOwnershipFull) {
+    const models = this.notificationModels.changeChannelOwnershipRejected
+
+    const channelName = changeOwnership.VideoChannel.Actor.preferredUsername
+
+    logger.debug(`Notify on rejected channel ${channelName} ownership change`, { id: changeOwnership.id, channelName, ...lTags() })
+
+    this.sendNotifications(models, changeOwnership)
+      .catch(err => logger.error('Cannot notify rejected channel ownership change %d.', changeOwnership.id, { err }))
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private async notify<T> (object: AbstractNotification<T>) {
     await object.prepare()
 
     const users = object.getTargetUsers()
@@ -298,14 +437,21 @@ class Notifier {
 
     object.log()
 
-    const toEmails: string[] = []
+    const toUsers: MUserWithNotificationSetting[] = []
 
     for (const user of users) {
       const setting = object.getSetting(user)
 
-      const webNotificationEnabled = this.isWebNotificationEnabled(setting)
-      const emailNotificationEnabled = this.isEmailEnabled(user, setting)
       const notification = object.createNotification(user)
+
+      const { webNotificationEnabled, emailNotificationEnabled } = await Hooks.wrapObject(
+        {
+          webNotificationEnabled: this.isWebNotificationEnabled(setting),
+          emailNotificationEnabled: this.isEmailEnabled(user, setting)
+        },
+        'filter:notifier.notification.enabled.result',
+        { user, notification }
+      )
 
       if (webNotificationEnabled) {
         await notification.save()
@@ -314,13 +460,13 @@ class Notifier {
       }
 
       if (emailNotificationEnabled) {
-        toEmails.push(user.email)
+        toUsers.push(user)
       }
 
       Hooks.runAction('action:notifier.notification.created', { webNotificationEnabled, emailNotificationEnabled, user, notification })
     }
 
-    for (const to of toEmails) {
+    for (const to of toUsers) {
       const payload = await object.createEmail(to)
       JobQueue.Instance.createJobAsync({ type: 'email', payload })
     }
@@ -336,9 +482,9 @@ class Notifier {
     return (value & UserNotificationSettingValue.WEB) === UserNotificationSettingValue.WEB
   }
 
-  private async sendNotifications <T> (models: (new (payload: T) => AbstractNotification<T>)[], payload: T) {
+  private async sendNotifications<T> (models: (new(payload: T) => AbstractNotification<T>)[], payload: T) {
     for (const model of models) {
-      // eslint-disable-next-line new-cap
+      // oxlint-disable-next-line new-cap
       await this.notify(new model(payload))
     }
   }

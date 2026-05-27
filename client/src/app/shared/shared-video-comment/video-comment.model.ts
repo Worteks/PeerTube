@@ -1,6 +1,7 @@
 import { getBackendHost } from '@app/helpers'
 import {
   Account as AccountInterface,
+  VideoChannelSummary,
   VideoCommentForAdminOrUser as VideoCommentForAdminOrUserServerModel,
   VideoComment as VideoCommentServerModel
 } from '@peertube/peertube-models'
@@ -62,7 +63,14 @@ export class VideoCommentForAdminOrUser implements VideoCommentForAdminOrUserSer
   createdAt: Date | string
   updatedAt: Date | string
 
-  account: AccountInterface & { localUrl?: string }
+  account: AccountInterface & {
+    mutedByInstance: boolean
+    mutedServerByInstance: boolean
+
+    localUrl: string
+    nameWithHostForced: string
+  }
+
   localUrl: string
 
   video: {
@@ -70,6 +78,8 @@ export class VideoCommentForAdminOrUser implements VideoCommentForAdminOrUserSer
     uuid: string
     name: string
     localUrl: string
+
+    channel: VideoChannelSummary
   }
 
   heldForReview: boolean
@@ -98,17 +108,25 @@ export class VideoCommentForAdminOrUser implements VideoCommentForAdminOrUserSer
       id: hash.video.id,
       uuid: hash.video.uuid,
       name: hash.video.name,
-      localUrl: Video.buildWatchUrl(hash.video)
+      localUrl: Video.buildWatchUrl(hash.video),
+
+      channel: hash.video.channel
     }
 
     this.localUrl = this.video.localUrl + ';threadId=' + this.threadId
 
-    this.account = hash.account
+    if (hash.account) {
+      this.by = Actor.CREATE_BY_STRING(hash.account.name, hash.account.host)
 
-    if (this.account) {
-      this.by = Actor.CREATE_BY_STRING(this.account.name, this.account.host)
+      this.account = {
+        ...hash.account,
 
-      this.account.localUrl = '/a/' + this.by
+        mutedByInstance: false,
+        mutedServerByInstance: false,
+
+        localUrl: '/a/' + this.by,
+        nameWithHostForced: Actor.CREATE_BY_STRING(hash.account.name, hash.account.host, true)
+      }
     }
   }
 }

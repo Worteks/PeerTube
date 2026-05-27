@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-floating-promises */
+// Fix typing issue because superagent is referenced by supertest
+/// <reference types="superagent" />
 
-import { decode } from 'querystring'
-import request from 'supertest'
-import { URL } from 'url'
 import { pick, queryParamsToObject } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, HttpStatusCodeType } from '@peertube/peertube-models'
 import { buildAbsoluteFixturePath } from '@peertube/peertube-node-utils'
+import { decode } from 'querystring'
+import request from 'supertest'
+import { URL } from 'url'
 
 export type CommonRequestParams = {
   url: string
@@ -32,16 +33,19 @@ export function makeRawRequest (options: {
   responseType?: string
   range?: string
   query?: { [id: string]: string }
+  fields?: { [fieldName: string]: any }
   method?: 'GET' | 'POST'
   accept?: string
   headers?: { [name: string]: string }
   redirects?: number
+  requestType?: 'form'
 }) {
   const { host, protocol, pathname, searchParams } = new URL(options.url)
 
   const reqOptions = {
     url: `${protocol}//${host}`,
     path: pathname,
+    type: options.requestType,
 
     contentType: undefined,
 
@@ -51,7 +55,7 @@ export function makeRawRequest (options: {
       ...queryParamsToObject(searchParams)
     },
 
-    ...pick(options, [ 'expectedStatus', 'range', 'token', 'headers', 'responseType', 'accept', 'redirects' ])
+    ...pick(options, [ 'expectedStatus', 'range', 'token', 'headers', 'responseType', 'accept', 'redirects', 'fields' ])
   }
 
   if (options.method === 'POST') {
@@ -76,12 +80,12 @@ export function makeGetRequest (options: CommonRequestParams) {
   return buildRequest(req, { contentType: 'application/json', expectedStatus: HttpStatusCode.BAD_REQUEST_400, ...options })
 }
 
-export function makeHTMLRequest (url: string, path: string) {
+export function makeHTMLRequest (url: string, path: string, expectedStatus: HttpStatusCodeType = HttpStatusCode.OK_200) {
   return makeGetRequest({
     url,
     path,
     accept: 'text/html',
-    expectedStatus: HttpStatusCode.OK_200
+    expectedStatus
   })
 }
 
@@ -161,12 +165,19 @@ export function makeUploadRequest (
 export function makePostBodyRequest (
   options: CommonRequestParams & {
     fields?: { [fieldName: string]: any }
+    requestType?: 'form'
   }
 ) {
   const req = request(options.url).post(options.path)
     .send(options.fields)
 
-  return buildRequest(req, { accept: 'application/json', expectedStatus: HttpStatusCode.BAD_REQUEST_400, ...options })
+  return buildRequest(req, {
+    accept: 'application/json',
+    type: options.requestType,
+    expectedStatus: HttpStatusCode.BAD_REQUEST_400,
+
+    ...options
+  })
 }
 
 export function makePutBodyRequest (options: {
@@ -176,7 +187,7 @@ export function makePutBodyRequest (options: {
   fields: { [fieldName: string]: any }
   expectedStatus?: HttpStatusCodeType
   headers?: { [name: string]: string }
-}) {
+}): request.Test {
   const req = request(options.url).put(options.path)
     .send(options.fields)
 

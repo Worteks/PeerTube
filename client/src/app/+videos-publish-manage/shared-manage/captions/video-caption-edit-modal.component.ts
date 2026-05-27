@@ -1,17 +1,17 @@
-import { NgClass, NgIf } from '@angular/common'
+import { NgClass } from '@angular/common'
 import { ChangeDetectorRef, Component, ElementRef, OnInit, inject, viewChild } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
+import { VideoCaptionEdit, VideoCaptionWithPathEdit } from '@app/+videos-publish-manage/shared-manage/common/video-caption-edit.model'
 import { VIDEO_CAPTION_FILE_CONTENT_VALIDATOR } from '@app/shared/form-validators/video-captions-validators'
 import { FormReactive } from '@app/shared/shared-forms/form-reactive'
 import { FormReactiveService } from '@app/shared/shared-forms/form-reactive.service'
 import { PeertubeCheckboxComponent } from '@app/shared/shared-forms/peertube-checkbox.component'
 import { TimestampInputComponent } from '@app/shared/shared-forms/timestamp-input.component'
-import { VideoCaptionEdit, VideoCaptionWithPathEdit } from '@app/+videos-publish-manage/shared-manage/common/video-caption-edit.model'
 import { VideoCaptionService } from '@app/shared/shared-main/video-caption/video-caption.service'
 import { EmbedComponent } from '@app/shared/shared-main/video/embed.component'
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap'
 import { millisecondsToVttTime, sortBy, timeToInt } from '@peertube/peertube-core-utils'
-import { HTMLServerConfig, VideoConstant } from '@peertube/peertube-models'
+import { HTMLServerConfig, ConstantLabel } from '@peertube/peertube-models'
 import { parse } from '@plussub/srt-vtt-parser'
 import { PeerTubePlayer } from '../../../../standalone/embed-player-api/player'
 import { ConfirmService, Notifier, ServerService } from '../../../core'
@@ -42,7 +42,6 @@ type Segment = {
     ReactiveFormsModule,
     GlobalIconComponent,
     NgClass,
-    NgIf,
     PeertubeCheckboxComponent,
     EmbedComponent,
     EditButtonComponent,
@@ -75,7 +74,7 @@ export class VideoCaptionEditModalComponent extends FormReactive implements OnIn
 
   activeSegment: Segment
 
-  videoCaptionLanguages: VideoConstant<string>[] = []
+  videoCaptionLanguages: ConstantLabel<string>[] = []
 
   timestampParser = this.webvttToMS.bind(this)
   timestampFormatter = millisecondsToVttTime
@@ -106,6 +105,10 @@ export class VideoCaptionEditModalComponent extends FormReactive implements OnIn
     this.serverConfig = options.serverConfig
     this.videoEdit = options.videoEdit
     this.captionEdited = options.captionEdited
+
+    this.rawEdit = false
+    this.segments = []
+    this.segmentToUpdate = undefined
 
     this.openedModal = this.modalService.open(this.modal(), {
       centered: true,
@@ -180,6 +183,7 @@ export class VideoCaptionEditModalComponent extends FormReactive implements OnIn
 
   onRawEditSwitch () {
     if (this.rawEdit === true) {
+      this.segmentToUpdate = undefined
       this.form.patchValue({ captionFileContent: this.formatSegments() })
       this.resetTextarea()
     } else {

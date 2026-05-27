@@ -5,12 +5,13 @@ import { FragLoadedData, default as Hlsjs } from 'hls.js'
 import type { DownloadSource, SegmentErrorDetails, SegmentLoadDetails } from 'p2p-media-loader-core'
 import type { HlsWithP2PInstance } from 'p2p-media-loader-hlsjs'
 import videojs from 'video.js'
-import { P2PMediaLoaderPluginOptions, PlayerNetworkInfo } from '../../types'
+import { P2PMediaLoaderPluginOptions, PlayerNetworkInfo, VideojsPlayer, VideojsPlugin } from '../../types'
 import { SettingsButton } from '../settings/settings-menu-button'
 
 const debugLogger = debug('peertube:player:p2p-media-loader')
 
-const Plugin = videojs.getPlugin('plugin')
+const Plugin = videojs.getPlugin('plugin') as typeof VideojsPlugin
+
 class P2pMediaLoaderPlugin extends Plugin {
   declare private readonly options: P2PMediaLoaderPluginOptions
 
@@ -35,7 +36,7 @@ class P2pMediaLoaderPlugin extends Plugin {
   declare private connectedPeers: Set<string>
   declare private totalHTTPPeers: number
 
-  constructor (player: videojs.Player, options?: P2PMediaLoaderPluginOptions) {
+  constructor (player: VideojsPlayer, options?: P2PMediaLoaderPluginOptions) {
     super(player)
 
     this.options = options
@@ -248,6 +249,11 @@ class P2pMediaLoaderPlugin extends Plugin {
     })
 
     this.networkInfoInterval = setInterval(() => {
+      const player = this.player
+      const hlsjs = this.hlsjs
+
+      if (!player || !hlsjs) return
+
       const p2pDownloadSpeed = this.arraySum(this.statsP2PBytes.pendingDownload)
       const p2pUploadSpeed = this.arraySum(this.statsP2PBytes.pendingUpload)
 
@@ -257,24 +263,27 @@ class P2pMediaLoaderPlugin extends Plugin {
       this.statsP2PBytes.pendingUpload = []
       this.statsHTTPBytes.pendingDownload = []
 
-      return this.player.trigger('network-info', {
-        source: 'p2p-media-loader',
-        bandwidthEstimate: (this.hlsjs as any).bandwidthEstimate / 8,
-        http: {
-          downloadSpeed: httpDownloadSpeed,
-          downloaded: this.statsHTTPBytes.totalDownload
-        },
-        p2p: this.options.p2pEnabled
-          ? {
-            downloadSpeed: p2pDownloadSpeed,
-            uploadSpeed: p2pUploadSpeed,
-            peersWithWebSeed: this.statsP2PBytes.peersWithWebSeed,
-            peersP2POnly: this.statsP2PBytes.peersP2POnly,
-            downloaded: this.statsP2PBytes.totalDownload,
-            uploaded: this.statsP2PBytes.totalUpload
-          }
-          : undefined
-      } as PlayerNetworkInfo)
+      return player.trigger(
+        'network-info',
+        {
+          source: 'p2p-media-loader',
+          bandwidthEstimate: (hlsjs as any).bandwidthEstimate / 8,
+          http: {
+            downloadSpeed: httpDownloadSpeed,
+            downloaded: this.statsHTTPBytes.totalDownload
+          },
+          p2p: this.options.p2pEnabled
+            ? {
+              downloadSpeed: p2pDownloadSpeed,
+              uploadSpeed: p2pUploadSpeed,
+              peersWithWebSeed: this.statsP2PBytes.peersWithWebSeed,
+              peersP2POnly: this.statsP2PBytes.peersP2POnly,
+              downloaded: this.statsP2PBytes.totalDownload,
+              uploaded: this.statsP2PBytes.totalUpload
+            }
+            : undefined
+        } satisfies PlayerNetworkInfo
+      )
     }, 1000)
   }
 

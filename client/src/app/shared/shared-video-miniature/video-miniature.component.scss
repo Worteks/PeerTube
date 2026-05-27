@@ -1,8 +1,8 @@
-@use '_variables' as *;
-@use '_mixins' as *;
-@use '_miniature' as *;
+@use "_variables" as *;
+@use "_mixins" as *;
+@use "_miniature" as *;
 
-$more-button-width: 40px;
+$more-button-width: 30px;
 
 .video-miniature {
   --co-fs-small: #{$miniature-fs-small};
@@ -70,6 +70,7 @@ my-actor-host {
 
 .video-actions {
   width: $more-button-width;
+  text-align: end;
 
   ::ng-deep .dropdown-root:not(.show) {
     opacity: 0;
@@ -92,7 +93,7 @@ my-actor-host {
   }
 }
 
-// Grid mode
+// Grid mode inherited from parent component
 // Takes all the width on mobile
 .video-miniature:not(.display-as-row) {
   display: flex;
@@ -107,7 +108,7 @@ my-actor-host {
   my-video-thumbnail {
     margin-bottom: 0.35rem;
 
-    @include block-ratio($selector: '::ng-deep .video-thumbnail');
+    @include block-ratio($selector: "::ng-deep .video-thumbnail");
   }
 
   &.has-avatar .video-info {
@@ -123,11 +124,11 @@ my-actor-host {
 
     @include left(-2px);
 
-    &[actorType=account] {
+    &[actorType="account"] {
       border-radius: $account-avatar-radius;
     }
 
-    &[actorType=channel] {
+    &[actorType="channel"] {
       border-radius: $channel-avatar-radius;
     }
 
@@ -141,6 +142,7 @@ my-actor-host {
     margin-top: 3px;
   }
 
+  // Keep breakpoint in sync with thumbnailSizes in template
   @media screen and (max-width: $small-view) {
     width: 100%;
     margin-bottom: 25px;
@@ -170,7 +172,7 @@ my-actor-host {
   --co-fs-medium: #{$miniature-fs-row-medium};
   --co-fs-big: #{$miniature-fs-row-big};
 
-  --co-row-thumbnail-width: #{$video-thumbnail-width};
+  --co-row-thumbnail-width: #{$video-thumbnail-width}; // Keep in sync with thumbnailSizes in template
   --co-row-thumbnail-height: #{$video-thumbnail-height};
 
   display: flex;

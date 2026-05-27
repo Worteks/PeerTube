@@ -1,14 +1,12 @@
-import { NgFor, NgIf } from '@angular/common'
 import { Component, OnInit, inject, viewChild } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
+import { VideoCaptionEdit, VideoCaptionWithPathEdit } from '@app/+videos-publish-manage/shared-manage/common/video-caption-edit.model'
 import { ServerService } from '@app/core'
 import { removeElementFromArray } from '@app/helpers'
 import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
 import { PTDatePipe } from '@app/shared/shared-main/common/date.pipe'
-import { VideoCaptionEdit, VideoCaptionWithPathEdit } from '@app/+videos-publish-manage/shared-manage/common/video-caption-edit.model'
-import { HTMLServerConfig, VideoConstant } from '@peertube/peertube-models'
+import { HTMLServerConfig, ConstantLabel } from '@peertube/peertube-models'
 import debug from 'debug'
-import { CalendarModule } from 'primeng/calendar'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 import { ButtonComponent } from '../../../shared/shared-main/buttons/button.component'
 import { DeleteButtonComponent } from '../../../shared/shared-main/buttons/delete-button.component'
@@ -30,9 +28,6 @@ const debugLogger = debug('peertube:video-manage')
   imports: [
     FormsModule,
     ReactiveFormsModule,
-    NgIf,
-    CalendarModule,
-    NgFor,
     GlobalIconComponent,
     DeleteButtonComponent,
     VideoCaptionAddModalComponent,
@@ -55,7 +50,7 @@ export class VideoCaptionsComponent implements OnInit {
   displayTranscriptionInfo: boolean
   videoEdit: VideoEdit
 
-  videoLanguages: VideoConstant<string>[] = []
+  videoLanguages: ConstantLabel<string>[] = []
 
   private initialVideoCaptions: string[] = []
 
@@ -99,7 +94,7 @@ export class VideoCaptionsComponent implements OnInit {
       Object.assign(existingCaption, caption)
     } else {
       captionsEdit.push(
-        Object.assign(caption, { action: 'CREATE' as 'CREATE' })
+        Object.assign(caption, { action: 'CREATE' })
       )
     }
 
@@ -121,7 +116,7 @@ export class VideoCaptionsComponent implements OnInit {
       return
     }
 
-    caption.action = 'REMOVE' as 'REMOVE'
+    caption.action = 'REMOVE'
 
     debugLogger('Caption deleted', caption)
   }

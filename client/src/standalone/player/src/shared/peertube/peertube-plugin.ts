@@ -5,30 +5,41 @@ import { isIOS, isMobile, isSafari } from '@root-helpers/web-browser'
 import debug from 'debug'
 import { UAParser } from 'ua-parser-js'
 import videojs from 'video.js'
+import type MediaError from 'video.js/dist/types/media-error'
+import type ModalDialog from 'video.js/dist/types/modal-dialog'
 import {
   getPlayerSessionId,
   getStoredLastSubtitle,
   getStoredMute,
+  getStoredPlaybackRate,
   getStoredVolume,
   saveLastSubtitle,
   saveMuteInStore,
+  savePlaybackRateInStore,
   savePreferredSubtitle,
   saveVideoWatchHistory,
   saveVolumeInStore
 } from '../../peertube-player-local-storage'
-import { PeerTubePluginOptions } from '../../types'
+import type {
+  PeerTubePluginOptions,
+  VideojsAutoplay,
+  VideojsCaptionsButton,
+  VideojsPlayer,
+  VideojsPlayerOptions,
+  VideojsPlugin
+} from '../../types'
 import { SettingsButton } from '../settings/settings-menu-button'
 
 const debugLogger = debug('peertube:player:peertube')
 
-const Plugin = videojs.getPlugin('plugin')
+const Plugin = videojs.getPlugin('plugin') as typeof VideojsPlugin
 
 class PeerTubePlugin extends Plugin {
   declare private readonly videoViewUrl: () => string
   declare private readonly authorizationHeader: () => string
   declare private readonly initialInactivityTimeout: number
 
-  declare private readonly hasAutoplay: () => videojs.Autoplay
+  declare private readonly hasAutoplay: () => VideojsAutoplay
 
   declare private currentSubtitle: string
   declare private currentPlaybackRate: number
@@ -39,7 +50,7 @@ class PeerTubePlugin extends Plugin {
   declare private mouseInControlBar: boolean
   declare private mouseInSettings: boolean
 
-  declare private errorModal: videojs.ModalDialog
+  declare private errorModal: ModalDialog
 
   declare private hasInitialSeek: boolean
 
@@ -56,7 +67,7 @@ class PeerTubePlugin extends Plugin {
     os: string
   }
 
-  constructor (player: videojs.Player, private readonly options: PeerTubePluginOptions) {
+  constructor (player: VideojsPlayer, private readonly options: PeerTubePluginOptions) {
     super(player)
 
     this.setUserAgentInfo()
@@ -92,20 +103,21 @@ class PeerTubePlugin extends Plugin {
       if (isIOS() || isSafari()) this.player.hasStarted(false)
     })
 
-    this.player.on('ratechange', () => {
-      this.currentPlaybackRate = this.player.playbackRate()
-
-      this.player.defaultPlaybackRate(this.currentPlaybackRate)
-    })
-
     this.player.one('canplay', () => {
-      const playerOptions = this.player.options_
+      const playerOptions = this.player.options_ as VideojsPlayerOptions
 
       const volume = getStoredVolume()
       if (volume !== undefined) this.player.volume(volume)
 
       const muted = playerOptions.muted !== undefined ? playerOptions.muted : getStoredMute()
       if (muted !== undefined) this.player.muted(muted)
+
+      const savedPlaybackRate = this.options.playbackRate ?? getStoredPlaybackRate()
+      if (savedPlaybackRate !== undefined) {
+        this.currentPlaybackRate = savedPlaybackRate
+        this.player.playbackRate(this.currentPlaybackRate)
+        this.player.defaultPlaybackRate(this.currentPlaybackRate)
+      }
 
       this.player.addClass('vjs-can-play')
     })
@@ -114,6 +126,16 @@ class PeerTubePlugin extends Plugin {
       this.player.on('volumechange', () => {
         saveVolumeInStore(this.player.volume())
         saveMuteInStore(this.player.muted())
+      })
+
+      this.player.on('ratechange', () => {
+        this.currentPlaybackRate = this.player.playbackRate()
+        this.player.defaultPlaybackRate(this.currentPlaybackRate)
+
+        // Don't save in store if the rate change is not a user action
+        if (this.currentPlaybackRate !== this.options.playbackRate) {
+          savePlaybackRateInStore(this.currentPlaybackRate)
+        }
       })
 
       this.player.textTracks().addEventListener('change', () => {
@@ -180,7 +202,13 @@ class PeerTubePlugin extends Plugin {
     this.alterInactivity()
   }
 
-  displayFatalError () {
+  displayFatalError (options: {
+    log?: boolean // default true
+    error?: Error | MediaError
+    isTechnicalError?: boolean // default true
+  } = {}) {
+    const { log = true, error = this.player.error(), isTechnicalError = true } = options
+
     // Already displayed an error
     if (this.errorModal) return
 
@@ -188,16 +216,20 @@ class PeerTubePlugin extends Plugin {
 
     this.player.loadingSpinner.hide()
 
-    const buildModal = (error: MediaError) => {
+    const buildModal = () => {
       const localize = this.player.localize.bind(this.player)
 
       const wrapper = document.createElement('div')
       const header = document.createElement('h1')
       header.innerText = localize('Failed to play video')
       wrapper.appendChild(header)
-      const desc = document.createElement('div')
-      desc.innerText = localize('The video failed to play due to technical issues.')
-      wrapper.appendChild(desc)
+
+      if (isTechnicalError) {
+        const desc = document.createElement('div')
+        desc.innerText = localize('The video failed to play due to technical issues.')
+        wrapper.appendChild(desc)
+      }
+
       const details = document.createElement('p')
       details.classList.add('error-details')
       details.innerText = error.message
@@ -206,7 +238,7 @@ class PeerTubePlugin extends Plugin {
       return wrapper
     }
 
-    this.errorModal = this.player.createModal(buildModal(this.player.error()), {
+    this.errorModal = this.player.createModal(buildModal(), {
       temporary: true,
       uncloseable: true
     })
@@ -214,11 +246,13 @@ class PeerTubePlugin extends Plugin {
 
     this.player.addClass('vjs-error-display-enabled')
 
-    // Google Bot may throw codecs, but it should not prevent indexing
-    if (/googlebot/i.test(navigator.userAgent)) {
-      console.error(this.player.error())
-    } else {
-      logger.error('Fatal error in player', this.player.error())
+    if (log) {
+      // Google Bot may throw codecs, but it should not prevent indexing
+      if (/googlebot/i.test(navigator.userAgent)) {
+        console.error(error)
+      } else {
+        logger.error('Fatal error in player', error)
+      }
     }
   }
 
@@ -253,7 +287,7 @@ class PeerTubePlugin extends Plugin {
   private initializePlayer () {
     if (isMobile()) this.player.addClass('vjs-is-mobile')
 
-    this.initSmoothProgressBar()
+    this.patchMenuEscapeKey()
 
     this.player.ready(() => {
       this.listenControlBarMouse()
@@ -297,7 +331,7 @@ class PeerTubePlugin extends Plugin {
 
     this.player.on('video-change', () => tryToUpdateRatioFromOptions())
 
-    this.player.on('video-ratio-changed', (_event, data: { ratio: number }) => {
+    this.player.on('video-ratio-changed', (_event: any, data: { ratio: number }) => {
       if (this.options.videoRatio()) return
 
       this.adaptPlayerFromRatio({ ratio: data.ratio, defaultRatio })
@@ -384,9 +418,11 @@ class PeerTubePlugin extends Plugin {
     this.player.one('ended', this.videoViewOnEndedHandler)
 
     this.videoViewInterval = setInterval(() => {
-      if (ended) return
+      const player = this.player
 
-      const currentTime = Math.floor(this.player.currentTime())
+      if (!player || ended) return
+
+      const currentTime = Math.floor(player.currentTime())
 
       // No need to update
       if (currentTime === lastCurrentTime) return
@@ -496,7 +532,7 @@ class PeerTubePlugin extends Plugin {
 
   private listenControlBarMouse () {
     const controlBar = this.player.controlBar
-    const settingsButton: SettingsButton = (controlBar as any).settingsButton
+    const settingsButton = controlBar.settingsButton
 
     controlBar.on('mouseenter', () => {
       this.mouseInControlBar = true
@@ -565,15 +601,22 @@ class PeerTubePlugin extends Plugin {
   private updateControlBar () {
     debugLogger('Updating control bar')
 
+    if (this.options.isLive() && this.options.liveDvrEnabled()) {
+      this.player.addClass('vjs-live-dvr')
+    } else {
+      this.player.removeClass('vjs-live-dvr')
+    }
+
     if (this.options.isLive()) {
       this.getPlaybackRateButton().hide()
-
-      this.player.controlBar.getChild('progressControl').hide()
+      this.player.controlBar.getChild('peerTubeLiveDisplay').show()
       this.player.controlBar.getChild('currentTimeDisplay').hide()
       this.player.controlBar.getChild('timeDivider').hide()
       this.player.controlBar.getChild('durationDisplay').hide()
 
-      this.player.controlBar.getChild('peerTubeLiveDisplay').show()
+      if (!this.options.liveDvrEnabled()) {
+        this.player.controlBar.getChild('progressControl').hide()
+      }
     } else {
       this.getPlaybackRateButton().show()
 
@@ -632,32 +675,40 @@ class PeerTubePlugin extends Plugin {
     })
   }
 
-  // Thanks: https://github.com/videojs/video.js/issues/4460#issuecomment-312861657
-  private initSmoothProgressBar () {
-    const SeekBar = videojs.getComponent('SeekBar') as any
-    SeekBar.prototype.getPercent = function getPercent () {
-      // Allows for smooth scrubbing, when player can't keep up.
-      // const time = (this.player_.scrubbing()) ?
-      //   this.player_.getCache().currentTime :
-      //   this.player_.currentTime()
-      const time = this.player_.currentTime()
-      const percent = time / this.player_.duration()
-      return percent >= 1 ? 1 : percent
-    }
-    SeekBar.prototype.handleMouseMove = function handleMouseMove (event: any) {
-      let newTime = this.calculateDistance(event) * this.player_.duration()
-      if (newTime === this.player_.duration()) {
-        newTime = newTime - 0.1
+  private patchMenuEscapeKey () {
+    const Menu = videojs.getComponent('Menu') as any
+
+    const fn = Menu.prototype.handleKeyDown
+    Menu.prototype.handleKeyDown = function handleKeyDown (event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        this.trigger('escaped-key')
+        return
       }
-      this.player_.currentTime(newTime)
-      this.update()
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        event.stopPropagation()
+        this.trigger('arrow-right', event.target)
+        return
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        event.stopPropagation()
+        this.trigger('arrow-left')
+        return
+      }
+
+      fn.call(this, event)
     }
   }
 
   private getCaptionsButton () {
     const settingsButton = this.player.controlBar.getDescendant([ 'settingsButton' ]) as SettingsButton
 
-    return settingsButton.menu.getChild('captionsButton') as videojs.CaptionsButton
+    return settingsButton.menu.getChild('captionsButton') as unknown as VideojsCaptionsButton
   }
 
   private getPlaybackRateButton () {

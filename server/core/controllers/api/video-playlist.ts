@@ -1,6 +1,7 @@
 import { forceNumber } from '@peertube/peertube-core-utils'
 import {
   HttpStatusCode,
+  VideoChannelActivityAction,
   VideoPlaylistCreate,
   VideoPlaylistCreateResult,
   VideoPlaylistElementCreate,
@@ -12,10 +13,15 @@ import {
   VideoPlaylistUpdate
 } from '@peertube/peertube-models'
 import { uuidToShort } from '@peertube/peertube-node-utils'
-import { scheduleRefreshIfNeeded } from '@server/lib/activitypub/playlists/index.js'
+import { schedulePlaylistRefreshIfNeeded } from '@server/lib/activitypub/playlists/index.js'
 import { Hooks } from '@server/lib/plugins/hooks.js'
-import { generateThumbnailForPlaylist } from '@server/lib/video-playlist.js'
+import {
+  generateThumbnailForPlaylist,
+  reorderPlaylistOrElementsPosition,
+  sendPlaylistPositionUpdateOfChannel
+} from '@server/lib/video-playlist.js'
 import { getServerActor } from '@server/models/application/application.js'
+import { VideoChannelActivityModel } from '@server/models/video/video-channel-activity.js'
 import { MVideoPlaylistFull, MVideoPlaylistThumbnail } from '@server/types/models/index.js'
 import express from 'express'
 import { resetSequelizeInstance, retryTransactionWrapper } from '../../helpers/database-utils.js'
@@ -26,7 +32,7 @@ import { MIMETYPES, VIDEO_PLAYLIST_PRIVACIES } from '../../initializers/constant
 import { sequelizeTypescript } from '../../initializers/database.js'
 import { sendCreateVideoPlaylist, sendDeleteVideoPlaylist, sendUpdateVideoPlaylist } from '../../lib/activitypub/send/index.js'
 import { getLocalVideoPlaylistActivityPubUrl, getLocalVideoPlaylistElementActivityPubUrl } from '../../lib/activitypub/url.js'
-import { updateLocalPlaylistMiniatureFromExisting } from '../../lib/thumbnail.js'
+import { createLocalPlaylistThumbnailsFromImage } from '../../lib/thumbnail.js'
 import {
   apiRateLimiter,
   asyncMiddleware,
@@ -95,13 +101,17 @@ videoPlaylistRouter.delete(
   asyncRetryTransactionMiddleware(removeVideoPlaylist)
 )
 
+// ---------------------------------------------------------------------------
+// Playlist elements
+// ---------------------------------------------------------------------------
+
 videoPlaylistRouter.get(
   '/:playlistId/videos',
   asyncMiddleware(videoPlaylistsGetValidator('summary')),
   paginationValidator,
   setDefaultPagination,
   optionalAuthenticate,
-  asyncMiddleware(getVideoPlaylistVideos)
+  asyncMiddleware(listVideosOfPlaylist)
 )
 
 videoPlaylistRouter.post(
@@ -115,7 +125,7 @@ videoPlaylistRouter.post(
   '/:playlistId/videos/reorder',
   authenticate,
   asyncMiddleware(videoPlaylistsReorderVideosValidator),
-  asyncRetryTransactionMiddleware(reorderVideosPlaylist)
+  asyncRetryTransactionMiddleware(reorderVideosOfPlaylist)
 )
 
 videoPlaylistRouter.put(
@@ -160,7 +170,7 @@ async function listVideoPlaylists (req: express.Request, res: express.Response) 
 function getVideoPlaylist (req: express.Request, res: express.Response) {
   const videoPlaylist = res.locals.videoPlaylistSummary
 
-  scheduleRefreshIfNeeded(videoPlaylist)
+  schedulePlaylistRefreshIfNeeded(videoPlaylist)
 
   return res.json(videoPlaylist.toFormattedJSON())
 }
@@ -173,21 +183,21 @@ async function createVideoPlaylist (req: express.Request, res: express.Response)
     name: videoPlaylistInfo.displayName,
     description: videoPlaylistInfo.description,
     privacy: videoPlaylistInfo.privacy || VideoPlaylistPrivacy.PRIVATE,
-    ownerAccountId: user.Account.id
+    ownerAccountId: res.locals.videoChannel?.Account.id ?? user.Account.id
   }) as MVideoPlaylistFull
 
   videoPlaylist.url = getLocalVideoPlaylistActivityPubUrl(videoPlaylist) // We use the UUID, so set the URL after building the object
 
-  if (videoPlaylistInfo.videoChannelId) {
-    const videoChannel = res.locals.videoChannel
+  const videoChannel = res.locals.videoChannel
 
+  if (videoChannel && videoPlaylistInfo.videoChannelId) {
     videoPlaylist.videoChannelId = videoChannel.id
     videoPlaylist.VideoChannel = videoChannel
   }
 
   const thumbnailField = req.files?.['thumbnailfile']
-  const thumbnailModel = thumbnailField
-    ? await updateLocalPlaylistMiniatureFromExisting({
+  const thumbnailModels = thumbnailField
+    ? await createLocalPlaylistThumbnailsFromImage({
       inputPath: thumbnailField[0].path,
       playlist: videoPlaylist,
       automaticallyGenerated: false
@@ -196,15 +206,32 @@ async function createVideoPlaylist (req: express.Request, res: express.Response)
 
   const videoPlaylistCreated = await retryTransactionWrapper(() => {
     return sequelizeTypescript.transaction(async t => {
+      if (videoPlaylist.videoChannelId) {
+        videoPlaylist.videoChannelPosition = await VideoPlaylistModel.getNextPositionOf({
+          videoChannelId: videoPlaylist.videoChannelId,
+          transaction: t
+        })
+      }
+
       const videoPlaylistCreated = await videoPlaylist.save({ transaction: t }) as MVideoPlaylistFull
 
-      if (thumbnailModel) {
-        await videoPlaylistCreated.setAndSaveThumbnail(thumbnailModel, t)
+      if (thumbnailModels) {
+        await videoPlaylistCreated.replaceAndSaveThumbnails(thumbnailModels, t)
       }
 
       // We need more attributes for the federation
       videoPlaylistCreated.OwnerAccount = await AccountModel.load(user.Account.id, t)
       await sendCreateVideoPlaylist(videoPlaylistCreated, t)
+
+      if (videoChannel) {
+        await VideoChannelActivityModel.addPlaylistActivity({
+          action: VideoChannelActivityAction.CREATE,
+          user,
+          channel: videoChannel,
+          playlist: videoPlaylistCreated,
+          transaction: t
+        })
+      }
 
       return videoPlaylistCreated
     })
@@ -222,54 +249,88 @@ async function createVideoPlaylist (req: express.Request, res: express.Response)
 }
 
 async function updateVideoPlaylist (req: express.Request, res: express.Response) {
-  const videoPlaylistInstance = res.locals.videoPlaylistFull
-  const videoPlaylistInfoToUpdate = req.body as VideoPlaylistUpdate
+  const playlist = res.locals.videoPlaylistFull
+  const body = req.body as VideoPlaylistUpdate
 
-  const wasPrivatePlaylist = videoPlaylistInstance.privacy === VideoPlaylistPrivacy.PRIVATE
-  const wasNotPrivatePlaylist = videoPlaylistInstance.privacy !== VideoPlaylistPrivacy.PRIVATE
+  const wasPrivatePlaylist = playlist.privacy === VideoPlaylistPrivacy.PRIVATE
+  const wasNotPrivatePlaylist = playlist.privacy !== VideoPlaylistPrivacy.PRIVATE
+
+  let removedFromChannel: { id: number, position: number }
 
   const thumbnailField = req.files?.['thumbnailfile']
-  const thumbnailModel = thumbnailField
-    ? await updateLocalPlaylistMiniatureFromExisting({
+  const thumbnailModels = thumbnailField
+    ? await createLocalPlaylistThumbnailsFromImage({
       inputPath: thumbnailField[0].path,
-      playlist: videoPlaylistInstance,
+      playlist,
       automaticallyGenerated: false
     })
     : undefined
 
   try {
     await sequelizeTypescript.transaction(async t => {
-      const sequelizeOptions = {
-        transaction: t
+      const newChannel = res.locals.videoChannel
+      const user = res.locals.oauth.token.User
+
+      // Had a channel, but the user changed it (to null or another channel)
+      if (playlist.videoChannelId && body.videoChannelId !== undefined && body.videoChannelId !== playlist.videoChannelId) {
+        await VideoChannelActivityModel.addPlaylistActivity({
+          action: VideoChannelActivityAction.REMOVE_CHANNEL_OWNERSHIP,
+          user,
+          channel: playlist.VideoChannel,
+          playlist,
+          transaction: t
+        })
+
+        removedFromChannel = {
+          id: playlist.videoChannelId,
+          position: playlist.videoChannelPosition
+        }
+
+        playlist.videoChannelId = null
+        playlist.VideoChannel = null
       }
 
-      if (videoPlaylistInfoToUpdate.videoChannelId !== undefined) {
-        if (videoPlaylistInfoToUpdate.videoChannelId === null) {
-          videoPlaylistInstance.videoChannelId = null
-        } else {
-          const videoChannel = res.locals.videoChannel
+      if (newChannel && newChannel.id !== playlist.videoChannelId) {
+        await VideoChannelActivityModel.addPlaylistActivity({
+          action: VideoChannelActivityAction.CREATE_CHANNEL_OWNERSHIP,
+          user,
+          channel: newChannel,
+          playlist,
+          transaction: t
+        })
 
-          videoPlaylistInstance.videoChannelId = videoChannel.id
-          videoPlaylistInstance.VideoChannel = videoChannel
+        playlist.videoChannelPosition = await VideoPlaylistModel.getNextPositionOf({
+          videoChannelId: newChannel.id,
+          transaction: t
+        })
+
+        playlist.videoChannelId = newChannel.id
+        playlist.VideoChannel = newChannel
+      } else if (newChannel) {
+        await VideoChannelActivityModel.addPlaylistActivity({
+          action: VideoChannelActivityAction.UPDATE,
+          user: res.locals.oauth.token.User,
+          channel: newChannel,
+          playlist,
+          transaction: t
+        })
+      }
+
+      if (body.displayName !== undefined) playlist.name = body.displayName
+      if (body.description !== undefined) playlist.description = body.description
+
+      if (body.privacy !== undefined) {
+        playlist.privacy = forceNumber(body.privacy) as VideoPlaylistPrivacyType
+
+        if (wasNotPrivatePlaylist === true && playlist.privacy === VideoPlaylistPrivacy.PRIVATE) {
+          await sendDeleteVideoPlaylist(playlist, t)
         }
       }
 
-      if (videoPlaylistInfoToUpdate.displayName !== undefined) videoPlaylistInstance.name = videoPlaylistInfoToUpdate.displayName
-      if (videoPlaylistInfoToUpdate.description !== undefined) videoPlaylistInstance.description = videoPlaylistInfoToUpdate.description
+      const playlistUpdated = await playlist.save({ transaction: t })
 
-      if (videoPlaylistInfoToUpdate.privacy !== undefined) {
-        videoPlaylistInstance.privacy = forceNumber(videoPlaylistInfoToUpdate.privacy) as VideoPlaylistPrivacyType
-
-        if (wasNotPrivatePlaylist === true && videoPlaylistInstance.privacy === VideoPlaylistPrivacy.PRIVATE) {
-          await sendDeleteVideoPlaylist(videoPlaylistInstance, t)
-        }
-      }
-
-      const playlistUpdated = await videoPlaylistInstance.save(sequelizeOptions)
-
-      if (thumbnailModel) {
-        thumbnailModel.automaticallyGenerated = false
-        await playlistUpdated.setAndSaveThumbnail(thumbnailModel, t)
+      if (thumbnailModels) {
+        await playlistUpdated.replaceAndSaveThumbnails(thumbnailModels, t)
       }
 
       const isNewPlaylist = wasPrivatePlaylist && playlistUpdated.privacy !== VideoPlaylistPrivacy.PRIVATE
@@ -280,7 +341,18 @@ async function updateVideoPlaylist (req: express.Request, res: express.Response)
         await sendUpdateVideoPlaylist(playlistUpdated, t)
       }
 
-      logger.info('Video playlist %s updated.', videoPlaylistInstance.uuid)
+      if (removedFromChannel) {
+        await VideoPlaylistModel.increasePositionOf({
+          videoChannelId: removedFromChannel.id,
+          fromPosition: removedFromChannel.position,
+          by: -1,
+          transaction: t
+        })
+
+        await sendPlaylistPositionUpdateOfChannel(removedFromChannel.id, t)
+      }
+
+      logger.info('Video playlist %s updated.', playlist.uuid)
 
       return playlistUpdated
     })
@@ -289,7 +361,7 @@ async function updateVideoPlaylist (req: express.Request, res: express.Response)
 
     // If the transaction is retried, sequelize will think the object has not changed
     // So we need to restore the previous fields
-    await resetSequelizeInstance(videoPlaylistInstance)
+    await resetSequelizeInstance(playlist)
 
     throw err
   }
@@ -299,11 +371,35 @@ async function updateVideoPlaylist (req: express.Request, res: express.Response)
 
 async function removeVideoPlaylist (req: express.Request, res: express.Response) {
   const videoPlaylistInstance = res.locals.videoPlaylistSummary
+  const positionToDelete = videoPlaylistInstance.videoChannelPosition
 
   await sequelizeTypescript.transaction(async t => {
     await videoPlaylistInstance.destroy({ transaction: t })
 
-    await sendDeleteVideoPlaylist(videoPlaylistInstance, t)
+    if (videoPlaylistInstance.privacy !== VideoPlaylistPrivacy.PRIVATE) {
+      await sendDeleteVideoPlaylist(videoPlaylistInstance, t)
+    }
+
+    if (videoPlaylistInstance.videoChannelId) {
+      await VideoPlaylistModel.increasePositionOf({
+        videoChannelId: videoPlaylistInstance.videoChannelId,
+        fromPosition: positionToDelete,
+        by: -1,
+        transaction: t
+      })
+    }
+
+    if (videoPlaylistInstance.videoChannelId) {
+      await sendPlaylistPositionUpdateOfChannel(videoPlaylistInstance.videoChannelId, t)
+
+      await VideoChannelActivityModel.addPlaylistActivity({
+        action: VideoChannelActivityAction.DELETE,
+        user: res.locals.oauth.token.User,
+        channel: videoPlaylistInstance.VideoChannel,
+        playlist: videoPlaylistInstance,
+        transaction: t
+      })
+    }
 
     logger.info('Video playlist %s deleted.', videoPlaylistInstance.uuid)
   })
@@ -311,10 +407,14 @@ async function removeVideoPlaylist (req: express.Request, res: express.Response)
   return res.type('json').status(HttpStatusCode.NO_CONTENT_204).end()
 }
 
+// ---------------------------------------------------------------------------
+// Videos in playlist
+// ---------------------------------------------------------------------------
+
 async function addVideoInPlaylist (req: express.Request, res: express.Response) {
   const body: VideoPlaylistElementCreate = req.body
   const videoPlaylist = res.locals.videoPlaylistFull
-  const video = res.locals.onlyVideo
+  const video = res.locals.videoThumbnails
 
   const playlistElement = await sequelizeTypescript.transaction(async t => {
     const position = await VideoPlaylistElementModel.getNextPositionOf(videoPlaylist.id, t)
@@ -332,6 +432,16 @@ async function addVideoInPlaylist (req: express.Request, res: express.Response) 
 
     videoPlaylist.changed('updatedAt', true)
     await videoPlaylist.save({ transaction: t })
+
+    if (videoPlaylist.VideoChannel) {
+      await VideoChannelActivityModel.addPlaylistActivity({
+        action: VideoChannelActivityAction.UPDATE_ELEMENTS,
+        user: res.locals.oauth.token.User,
+        channel: videoPlaylist.VideoChannel,
+        playlist: videoPlaylist,
+        transaction: t
+      })
+    }
 
     return playlistElement
   })
@@ -371,6 +481,16 @@ async function updateVideoPlaylistElement (req: express.Request, res: express.Re
 
     await sendUpdateVideoPlaylist(videoPlaylist, t)
 
+    if (videoPlaylist.VideoChannel) {
+      await VideoChannelActivityModel.addPlaylistActivity({
+        action: VideoChannelActivityAction.UPDATE_ELEMENTS,
+        user: res.locals.oauth.token.User,
+        channel: videoPlaylist.VideoChannel,
+        playlist: videoPlaylist,
+        transaction: t
+      })
+    }
+
     return element
   })
 
@@ -388,10 +508,25 @@ async function removeVideoFromPlaylist (req: express.Request, res: express.Respo
     await videoPlaylistElement.destroy({ transaction: t })
 
     // Decrease position of the next elements
-    await VideoPlaylistElementModel.increasePositionOf(videoPlaylist.id, positionToDelete, -1, t)
+    await VideoPlaylistElementModel.increasePositionOf({
+      videoPlaylistId: videoPlaylist.id,
+      fromPosition: positionToDelete,
+      by: -1,
+      transaction: t
+    })
 
     videoPlaylist.changed('updatedAt', true)
     await videoPlaylist.save({ transaction: t })
+
+    if (videoPlaylist.VideoChannel) {
+      await VideoChannelActivityModel.addPlaylistActivity({
+        action: VideoChannelActivityAction.UPDATE_ELEMENTS,
+        user: res.locals.oauth.token.User,
+        channel: videoPlaylist.VideoChannel,
+        playlist: videoPlaylist,
+        transaction: t
+      })
+    }
 
     logger.info('Video playlist element %d of playlist %s deleted.', videoPlaylistElement.position, videoPlaylist.uuid)
   })
@@ -407,7 +542,7 @@ async function removeVideoFromPlaylist (req: express.Request, res: express.Respo
   return res.type('json').status(HttpStatusCode.NO_CONTENT_204).end()
 }
 
-async function reorderVideosPlaylist (req: express.Request, res: express.Response) {
+async function reorderVideosOfPlaylist (req: express.Request, res: express.Response) {
   const videoPlaylist = res.locals.videoPlaylistFull
   const body: VideoPlaylistReorder = req.body
 
@@ -419,44 +554,26 @@ async function reorderVideosPlaylist (req: express.Request, res: express.Respons
     return res.status(HttpStatusCode.NO_CONTENT_204).end()
   }
 
-  // Example: if we reorder position 2 and insert after position 5 (so at position 6): # 1 2 3 4 5 6 7 8 9
-  //  * increase position when position > 5 # 1 2 3 4 5 7 8 9 10
-  //  * update position 2 -> position 6 # 1 3 4 5 6 7 8 9 10
-  //  * decrease position when position position > 2 # 1 2 3 4 5 6 7 8 9
   await sequelizeTypescript.transaction(async t => {
-    const newPosition = insertAfter + 1
-
-    // Add space after the position when we want to insert our reordered elements (increase)
-    await VideoPlaylistElementModel.increasePositionOf(videoPlaylist.id, newPosition, reorderLength, t)
-
-    let oldPosition = start
-
-    // We incremented the position of the elements we want to reorder
-    if (start >= newPosition) oldPosition += reorderLength
-
-    const endOldPosition = oldPosition + reorderLength - 1
-    // Insert our reordered elements in their place (update)
-    await VideoPlaylistElementModel.reassignPositionOf({
-      videoPlaylistId: videoPlaylist.id,
-      firstPosition: oldPosition,
-      endPosition: endOldPosition,
-      newPosition,
+    await reorderPlaylistOrElementsPosition({
+      model: VideoPlaylistElementModel,
+      instance: videoPlaylist,
+      start,
+      insertAfter,
+      reorderLength,
       transaction: t
     })
 
-    // Decrease positions of elements after the old position of our ordered elements (decrease)
-    await VideoPlaylistElementModel.increasePositionOf(videoPlaylist.id, oldPosition, -reorderLength, t)
-
     videoPlaylist.changed('updatedAt', true)
     await videoPlaylist.save({ transaction: t })
-
-    await sendUpdateVideoPlaylist(videoPlaylist, t)
   })
 
   // The first element changed
   if ((start === 1 || insertAfter === 0) && videoPlaylist.hasGeneratedThumbnail()) {
     await regeneratePlaylistThumbnail(videoPlaylist)
   }
+
+  await sendUpdateVideoPlaylist(videoPlaylist, undefined)
 
   logger.info(
     'Reordered playlist %s (inserted after position %d elements %d - %d).',
@@ -469,7 +586,7 @@ async function reorderVideosPlaylist (req: express.Request, res: express.Respons
   return res.type('json').status(HttpStatusCode.NO_CONTENT_204).end()
 }
 
-async function getVideoPlaylistVideos (req: express.Request, res: express.Response) {
+async function listVideosOfPlaylist (req: express.Request, res: express.Response) {
   const videoPlaylistInstance = res.locals.videoPlaylistSummary
   const user = res.locals.oauth ? res.locals.oauth.token.User : undefined
   const server = await getServerActor()
@@ -493,8 +610,7 @@ async function getVideoPlaylistVideos (req: express.Request, res: express.Respon
 }
 
 async function regeneratePlaylistThumbnail (videoPlaylist: MVideoPlaylistThumbnail) {
-  await videoPlaylist.Thumbnail.destroy()
-  videoPlaylist.Thumbnail = null
+  await videoPlaylist.removeThumbnails(undefined)
 
   const firstElement = await VideoPlaylistElementModel.loadFirstElementWithVideoThumbnail(videoPlaylist.id)
   if (firstElement) await generateThumbnailForPlaylist(videoPlaylist, firstElement.Video)

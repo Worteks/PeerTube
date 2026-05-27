@@ -1,0 +1,35 @@
+packages:
+  - packages/*
+  - apps/*
+  - server
+  - client
+  - client/packages/*
+  - client/src/standalone/player
+
+ignoredBuiltDependencies:
+  - sharp
+
+minimumReleaseAge: 1440
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - bcrypt
+  - bufferutil
+  - core-js
+  - edgedriver
+  - es5-ext
+  - esbuild
+  - geckodriver
+  - lmdb
+  - msgpackr-extract
+  - node-datachannel
+  - protobufjs
+  - utf-8-validate
+  - utp-native
+
+patchedDependencies:
+  '@types/markdown-it': pnpm-patches/@types__markdown-it.patch
+  sharp: pnpm-patches/sharp.patch
+  tinykeys: pnpm-patches/tinykeys.patch
+  video.js: pnpm-patches/video.js.patch

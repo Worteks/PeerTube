@@ -8,18 +8,20 @@ import {
   VideoStudioTaskIntroPayload,
   VideoStudioTaskOutroPayload,
   VideoStudioTaskPayload,
+  VideoStudioTaskRemoveSegmentsPayload,
   VideoStudioTaskWatermarkPayload
 } from '@peertube/peertube-models'
 import { buildUUID } from '@peertube/peertube-node-utils'
 import { getFFmpegCommandWrapperOptions } from '@server/helpers/ffmpeg/index.js'
 import { CONFIG } from '@server/initializers/config.js'
+import { sequelizeTypescript } from '@server/initializers/database.js'
 import { VideoTranscodingProfilesManager } from '@server/lib/transcoding/default-transcoding-profiles.js'
 import { isUserQuotaValid } from '@server/lib/user.js'
 import { VideoPathManager } from '@server/lib/video-path-manager.js'
 import { approximateIntroOutroAdditionalSize, onVideoStudioEnded, safeCleanupStudioTMPFiles } from '@server/lib/video-studio.js'
 import { UserModel } from '@server/models/user/user.js'
 import { VideoModel } from '@server/models/video/video.js'
-import { MVideo, MVideoFullLight } from '@server/types/models/index.js'
+import { MVideo, MVideoFull } from '@server/types/models/index.js'
 import { MutexInterface } from 'async-mutex'
 import { Job } from 'bullmq'
 import { remove } from 'fs-extra/esm'
@@ -94,8 +96,12 @@ async function processVideoStudioEdition (job: Job) {
     await safeCleanupStudioTMPFiles(payload.tasks)
 
     try {
-      const video = await VideoModel.loadFull(payload.videoUUID)
-      await video.setNewState(VideoState.PUBLISHED, false, undefined)
+      await sequelizeTypescript.transaction(async transaction => {
+        const video = await VideoModel.load(payload.videoUUID, transaction)
+        if (!video || video.state === VideoState.PUBLISHED) return
+
+        await video.setNewState(VideoState.PUBLISHED, false, transaction)
+      })
     } catch (err) {
       logger.error('Cannot reset video state after studio error', { err, ...lTags })
     }
@@ -130,7 +136,8 @@ const taskProcessors: { [id in VideoStudioTask['name']]: (options: TaskProcessor
   'add-intro': processAddIntroOutro,
   'add-outro': processAddIntroOutro,
   'cut': processCut,
-  'add-watermark': processAddWatermark
+  'add-watermark': processAddWatermark,
+  'remove-segments': processRemoveSegments
 }
 
 async function processTask (options: TaskProcessorOptions) {
@@ -172,6 +179,18 @@ function processCut (options: TaskProcessorOptions<VideoStudioTaskCutPayload>) {
   })
 }
 
+function processRemoveSegments (options: TaskProcessorOptions<VideoStudioTaskRemoveSegmentsPayload>) {
+  const { task, lTags } = options
+
+  logger.debug('Will remove segments from the video.', { options, ...lTags })
+
+  return buildFFmpegEdition().removeSegments({
+    ...pick(options, [ 'inputFileMutexReleaser', 'videoInputPath', 'separatedAudioInputPath', 'outputPath' ]),
+
+    segments: task.options.segments
+  })
+}
+
 function processAddWatermark (options: TaskProcessorOptions<VideoStudioTaskWatermarkPayload>) {
   const { task, lTags } = options
 
@@ -184,7 +203,7 @@ function processAddWatermark (options: TaskProcessorOptions<VideoStudioTaskWater
 
     videoFilters: {
       watermarkSizeRatio: task.options.watermarkSizeRatio,
-      horitonzalMarginRatio: task.options.horitonzalMarginRatio,
+      horizontalMarginRatio: task.options.horizontalMarginRatio,
       verticalMarginRatio: task.options.verticalMarginRatio
     }
   })
@@ -192,13 +211,13 @@ function processAddWatermark (options: TaskProcessorOptions<VideoStudioTaskWater
 
 // ---------------------------------------------------------------------------
 
-async function checkUserQuotaOrThrow (video: MVideoFullLight, payload: VideoStudioEditionPayload) {
+async function checkUserQuotaOrThrow (video: MVideoFull, payload: VideoStudioEditionPayload) {
   const user = await UserModel.loadByVideoId(video.id)
 
   const filePathFinder = (i: number) => (payload.tasks[i] as VideoStudioTaskIntroPayload | VideoStudioTaskOutroPayload).options.file
 
   const additionalBytes = await approximateIntroOutroAdditionalSize(video, payload.tasks, filePathFinder)
-  if (await isUserQuotaValid({ userId: user.id, uploadSize: additionalBytes }) === false) {
+  if (await isUserQuotaValid({ channelUserId: user.id, uploadSize: additionalBytes }) === false) {
     throw new Error('Quota exceeded for this user to edit the video')
   }
 }

@@ -1,5 +1,5 @@
-import { VideoViewsManager } from '@server/lib/views/video-views-manager.js'
 import { ActivityView } from '@peertube/peertube-models'
+import { VideoStatsManager } from '@server/lib/stats/video-stats-manager.js'
 import { APProcessorOptions } from '../../../types/activitypub-processor.model.js'
 import { MActorSignature } from '../../../types/models/index.js'
 import { forwardVideoRelatedActivity } from '../send/shared/send-utils.js'
@@ -24,40 +24,34 @@ async function processCreateView (activity: ActivityView, byActor: MActorSignatu
 
   const { video } = await getOrCreateAPVideo({
     videoObject,
-    fetchType: 'only-video-and-blacklist',
+    fetchType: 'with-blacklist',
     allowRefresh: false
   })
 
-  await VideoViewsManager.Instance.processRemoteView({
+  await VideoStatsManager.Instance.processRemoteView({
     video,
     viewerId: activity.id,
 
-    viewerExpires: getExpires(activity)
-      ? new Date(getExpires(activity))
+    viewerExpires: activity.expires
+      ? new Date(activity.expires)
       : undefined,
     viewerResultCounter: getViewerResultCounter(activity)
   })
 
-  if (video.isOwned()) {
+  if (video.isLocal()) {
     // Forward the view but don't resend the activity to the sender
     const exceptions = [ byActor ]
-    await forwardVideoRelatedActivity(activity, undefined, exceptions, video)
+    await forwardVideoRelatedActivity({ activity, transaction: undefined, followersException: exceptions, video, parallelizable: true })
   }
 }
 
-// Viewer protocol V2
 function getViewerResultCounter (activity: ActivityView) {
   const result = activity.result
 
-  if (!getExpires(activity) || result?.interactionType !== 'WatchAction' || result?.type !== 'InteractionCounter') return undefined
+  if (!activity.expires || result?.interactionType !== 'WatchAction' || result?.type !== 'InteractionCounter') return undefined
 
   const counter = parseInt(result.userInteractionCount + '')
   if (isNaN(counter)) return undefined
 
   return counter
-}
-
-// TODO: compat with < 6.1, remove in 8.0
-function getExpires (activity: ActivityView) {
-  return activity.expires || activity['expiration'] as string
 }

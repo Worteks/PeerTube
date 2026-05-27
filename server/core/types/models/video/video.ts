@@ -1,5 +1,6 @@
 import { PickWith, PickWithOpt } from '@peertube/peertube-typescript-utils'
 import { VideoModel } from '../../../models/video/video.js'
+import { MVideoAutomaticTagWithTag } from '../automatic-tag/video-automatic-tag.js'
 import { MTrackerUrl } from '../server/tracker.js'
 import { MUserVideoHistoryTime } from '../user/user-video-history.js'
 import { MScheduleVideoUpdate } from './schedule-video-update.js'
@@ -16,10 +17,11 @@ import {
   MChannelActor,
   MChannelFormattable,
   MChannelHostOnly,
-  MChannelUserId
+  MChannelSummary
 } from './video-channel.js'
 import { MVideoFile } from './video-file.js'
-import { MVideoLive } from './video-live.js'
+import { MVideoLiveWithSchedules } from './video-live.js'
+import { MVideoSource } from './video-source.js'
 import {
   MStreamingPlaylistFiles,
   MStreamingPlaylistRedundancies,
@@ -44,6 +46,7 @@ export type MVideo = Omit<
   | 'AccountVideoRates'
   | 'VideoComments'
   | 'VideoViews'
+  | 'VideoDownloads'
   | 'UserVideoHistories'
   | 'ScheduleVideoUpdate'
   | 'VideoBlacklist'
@@ -54,6 +57,9 @@ export type MVideo = Omit<
   | 'VideoPasswords'
   | 'Storyboard'
   | 'AutomaticTags'
+  | 'VideoSource'
+  | 'VideoJobInfo'
+  | 'VideoAutomaticTags'
 >
 
 // ############################################################################
@@ -61,10 +67,10 @@ export type MVideo = Omit<
 export type MVideoId = Pick<MVideo, 'id'>
 export type MVideoUrl = Pick<MVideo, 'url'>
 export type MVideoUUID = Pick<MVideo, 'uuid'>
-export type MVideoPrivacy = Pick<MVideo, 'privacy' | 'uuid'>
+export type MVideoPrivacy = Pick<MVideo, 'privacy' | 'uuid' | 'hasPrivateStaticPath'>
 
-export type MVideoImmutable = Pick<MVideo, 'id' | 'url' | 'uuid' | 'remote' | 'isOwned'>
-export type MVideoOwned = Pick<MVideo, 'remote' | 'isOwned'>
+export type MVideoImmutable = Pick<MVideo, 'id' | 'url' | 'uuid' | 'remote' | 'isLocal'>
+export type MVideoOwned = Pick<MVideo, 'remote' | 'isLocal'>
 export type MVideoIdUrl = MVideoId & MVideoUrl
 export type MVideoFeed = Pick<MVideo, 'name' | 'uuid'>
 
@@ -78,21 +84,12 @@ export type MVideoWithFile =
   & Use<'VideoFiles', MVideoFile[]>
   & Use<'VideoStreamingPlaylists', MStreamingPlaylistFiles[]>
 
-export type MVideoThumbnail =
+export type MVideoThumbnails =
   & MVideo
   & Use<'Thumbnails', MThumbnail[]>
 
-export type MVideoIdThumbnail =
-  & MVideoId
-  & Use<'Thumbnails', MThumbnail[]>
-
-export type MVideoWithFileThumbnail =
-  & MVideoWithFile
-  & Use<'Thumbnails', MThumbnail[]>
-
-export type MVideoThumbnailBlacklist =
+export type MVideoWithBlacklist =
   & MVideo
-  & Use<'Thumbnails', MThumbnail[]>
   & Use<'VideoBlacklist', MVideoBlacklistLight>
 
 export type MVideoTag =
@@ -110,6 +107,14 @@ export type MVideoWithCaptions =
 export type MVideoWithStreamingPlaylist =
   & MVideo
   & Use<'VideoStreamingPlaylists', MStreamingPlaylistFiles[]>
+
+export type MVideoSeo =
+  & MVideo
+  & Use<'Thumbnails', MThumbnail[]>
+  & Use<'VideoBlacklist', MVideoBlacklistLight>
+  & Use<'VideoChannel', MChannelAccountLight>
+  & Use<'Tags', MTag[]>
+  & Use<'VideoCaptions', MVideoCaptionLanguageUrl[]>
 
 // ############################################################################
 
@@ -134,7 +139,7 @@ export type MVideoAccountLight =
 export type MVideoWithRights =
   & MVideo
   & Use<'VideoBlacklist', MVideoBlacklistLight>
-  & Use<'VideoChannel', MChannelUserId>
+  & Use<'VideoChannel', MChannelAccountLight>
 
 // ############################################################################
 
@@ -175,11 +180,19 @@ export type MVideoWithChannelActor =
   & MVideo
   & Use<'VideoChannel', MChannelActor>
 
+export type MVideoSummary =
+  & Pick<
+    MVideo,
+    'id' | 'uuid' | 'name' | 'nsfw' | 'url' | 'channelId' | 'publishedAt' | 'isLive' | 'remote' | 'state' | 'toFormattedSummaryJSON'
+  >
+  & Use<'VideoChannel', MChannelSummary>
+  & Use<'Thumbnails', MThumbnail[]>
+
 export type MVideoWithHost =
   & MVideo
   & Use<'VideoChannel', MChannelHostOnly>
 
-export type MVideoFullLight =
+export type MVideoFull =
   & MVideo
   & Use<'Thumbnails', MThumbnail[]>
   & Use<'VideoBlacklist', MVideoBlacklistLight>
@@ -189,7 +202,7 @@ export type MVideoFullLight =
   & Use<'VideoFiles', MVideoFile[]>
   & Use<'ScheduleVideoUpdate', MScheduleVideoUpdate>
   & Use<'VideoStreamingPlaylists', MStreamingPlaylistFiles[]>
-  & Use<'VideoLive', MVideoLive>
+  & Use<'VideoLive', MVideoLiveWithSchedules>
 
 // ############################################################################
 
@@ -204,7 +217,7 @@ export type MVideoAP =
   & Use<'VideoBlacklist', MVideoBlacklistUnfederated>
   & Use<'VideoFiles', MVideoFile[]>
   & Use<'Thumbnails', MThumbnail[]>
-  & Use<'VideoLive', MVideoLive>
+  & Use<'VideoLive', MVideoLiveWithSchedules>
   & Use<'Storyboard', MStoryboard>
 
 export type MVideoAPLight = Omit<MVideoAP, 'VideoCaptions' | 'Storyboard'>
@@ -237,13 +250,17 @@ export type MVideoForRedundancyAPI =
 // Format for API or AP object
 
 export type MVideoFormattable =
-  & MVideoThumbnail
+  & MVideoThumbnails
   & PickWithOpt<VideoModel, 'UserVideoHistories', MUserVideoHistoryTime[]>
   & Use<'VideoChannel', MChannelAccountSummaryFormattable>
   & PickWithOpt<VideoModel, 'ScheduleVideoUpdate', Pick<MScheduleVideoUpdate, 'updateAt' | 'privacy'>>
   & PickWithOpt<VideoModel, 'VideoBlacklist', Pick<MVideoBlacklist, 'reason'>>
   & PickWithOpt<VideoModel, 'VideoStreamingPlaylists', MStreamingPlaylistFiles[]>
   & PickWithOpt<VideoModel, 'VideoFiles', MVideoFile[]>
+  & PickWithOpt<VideoModel, 'VideoLive', MVideoLiveWithSchedules>
+  & PickWithOpt<VideoModel, 'VideoAutomaticTags', MVideoAutomaticTagWithTag[]>
+  & PickWithOpt<VideoModel, 'Tags', MTag[]>
+  & PickWithOpt<VideoModel, 'VideoSource', MVideoSource>
 
 export type MVideoFormattableDetails =
   & MVideoFormattable

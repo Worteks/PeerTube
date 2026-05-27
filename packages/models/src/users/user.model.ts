@@ -6,6 +6,9 @@ import { UserAdminFlagType } from './user-flag.model.js'
 import { UserNotificationSetting } from './user-notification-setting.model.js'
 import { UserRoleType } from './user-role.js'
 
+type UserVideoChannel = Omit<VideoChannel, 'ownerAccount'> & {
+  ownerAccountId: number
+}
 export interface User {
   id: number
   username: string
@@ -31,6 +34,7 @@ export interface User {
 
   videosHistoryEnabled: boolean
   videoLanguages: string[]
+  language: string
 
   role: {
     id: UserRoleType
@@ -56,7 +60,8 @@ export interface User {
 
   account: Account
   notificationSettings?: UserNotificationSetting
-  videoChannels?: VideoChannel[]
+
+  videoChannels?: UserVideoChannel[]
 
   blocked: boolean
   blockedReason?: string
@@ -72,6 +77,8 @@ export interface User {
   lastLoginDate: Date | null
 
   twoFactorEnabled: boolean
+
+  newFeaturesInfoRead: number
 }
 
 export interface MyUserSpecialPlaylist {
@@ -82,4 +89,5 @@ export interface MyUserSpecialPlaylist {
 
 export interface MyUser extends User {
   specialPlaylists: MyUserSpecialPlaylist[]
+  videoChannelCollaborations?: UserVideoChannel[]
 }

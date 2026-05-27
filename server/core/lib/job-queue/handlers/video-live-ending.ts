@@ -1,5 +1,5 @@
 import { ffprobePromise, getAudioStream, getVideoStreamDimensionsInfo, getVideoStreamFPS } from '@peertube/peertube-ffmpeg'
-import { ThumbnailType, VideoFileStream, VideoLiveEndingPayload, VideoState } from '@peertube/peertube-models'
+import { VideoFileStream, VideoLiveEndingPayload, VideoState } from '@peertube/peertube-models'
 import { peertubeTruncate } from '@server/helpers/core-utils.js'
 import { CONSTRAINTS_FIELDS } from '@server/initializers/constants.js'
 import { getLocalVideoActivityPubUrl } from '@server/lib/activitypub/url.js'
@@ -11,15 +11,21 @@ import {
   getHLSDirectory,
   getLiveReplayBaseDirectory
 } from '@server/lib/paths.js'
-import { generateLocalVideoMiniature, regenerateMiniaturesIfNeeded, updateLocalVideoMiniatureFromExisting } from '@server/lib/thumbnail.js'
+import {
+  createLocalVideoThumbnailsFromImage,
+  createLocalVideoThumbnailsFromVideo,
+  regenerateLocalVideoThumbnailsFromVideoIfNeeded
+} from '@server/lib/thumbnail.js'
 import { generateHlsPlaylistResolutionFromTS } from '@server/lib/transcoding/hls-transcoding.js'
 import { createTranscriptionTaskIfNeeded } from '@server/lib/video-captions.js'
-import { buildStoryboardJobIfNeeded } from '@server/lib/video-jobs.js'
+import { addLocalOrRemoteStoryboardJobIfNeeded } from '@server/lib/video-jobs.js'
 import { VideoPathManager } from '@server/lib/video-path-manager.js'
 import { isVideoInPublicDirectory } from '@server/lib/video-privacy.js'
 import { moveToNextState } from '@server/lib/video-state.js'
 import { setVideoTags } from '@server/lib/video.js'
+import { PlayerSettingModel } from '@server/models/video/player-setting.js'
 import { VideoBlacklistModel } from '@server/models/video/video-blacklist.js'
+import { VideoEmbedPrivacyDomainModel } from '@server/models/video/video-embed-privacy-domain.js'
 import { VideoFileModel } from '@server/models/video/video-file.js'
 import { VideoLiveReplaySettingModel } from '@server/models/video/video-live-replay-setting.js'
 import { VideoLiveSessionModel } from '@server/models/video/video-live-session.js'
@@ -32,16 +38,14 @@ import {
   MVideoLive,
   MVideoLiveSession,
   MVideoTag,
-  MVideoThumbnail,
-  MVideoWithAllFiles,
-  MVideoWithFileThumbnail
+  MVideoThumbnails,
+  MVideoWithAllFiles
 } from '@server/types/models/index.js'
 import { Job } from 'bullmq'
 import { pathExists, remove } from 'fs-extra/esm'
 import { readdir } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { logger, loggerTagsFactory } from '../../../helpers/logger.js'
-import { JobQueue } from '../job-queue.js'
 
 const lTags = loggerTagsFactory('live', 'job')
 
@@ -54,7 +58,7 @@ export async function processVideoLiveEnding (job: Job) {
     logger.warn('Video live %d does not exist anymore. Cannot process live ending.', payload.videoId, lTags())
   }
 
-  const video = await VideoModel.load(payload.videoId)
+  const video = await VideoModel.loadWithThumbnails(payload.videoId)
   const live = await VideoLiveModel.loadByVideoId(payload.videoId)
   const liveSession = await VideoLiveSessionModel.load(payload.liveSessionId)
 
@@ -116,7 +120,7 @@ export async function processVideoLiveEnding (job: Job) {
 // ---------------------------------------------------------------------------
 
 async function saveReplayToExternalVideo (options: {
-  liveVideo: MVideoThumbnail
+  liveVideo: MVideoThumbnails
   liveSession: MVideoLiveSession
   publishedAt: string
   replayDirectory: string
@@ -125,6 +129,16 @@ async function saveReplayToExternalVideo (options: {
 
   const liveVideo = await VideoModel.loadFull(options.liveVideo.id)
   const replaySettings = await VideoLiveReplaySettingModel.load(liveSession.replaySettingId)
+
+  if (!liveVideo || !replaySettings) {
+    logger.warn(
+      'Live video %d or its replay settings %d do not exist anymore, skipping external replay creation.',
+      options.liveVideo.id,
+      liveSession.replaySettingId,
+      lTags()
+    )
+    return
+  }
 
   const videoNameSuffix = ` - ${new Date(publishedAt).toLocaleString()}`
   const truncatedVideoName = peertubeTruncate(liveVideo.name, {
@@ -143,6 +157,7 @@ async function saveReplayToExternalVideo (options: {
     language: liveVideo.language,
     commentsPolicy: liveVideo.commentsPolicy,
     downloadEnabled: liveVideo.downloadEnabled,
+    embedPrivacyPolicy: liveVideo.embedPrivacyPolicy,
     waitTranscoding: true,
     nsfw: liveVideo.nsfw,
     description: liveVideo.description,
@@ -176,6 +191,21 @@ async function saveReplayToExternalVideo (options: {
     })
   }
 
+  // Inherit player settings
+  const playerSettings = await PlayerSettingModel.loadByVideoId(liveVideo.id)
+  if (playerSettings) {
+    await PlayerSettingModel.create({
+      videoId: replayVideo.id,
+      theme: playerSettings.theme
+    })
+  }
+
+  // Inherit video embed privacy
+  const domains = await VideoEmbedPrivacyDomainModel.list(liveVideo.id)
+  if (domains.length !== 0) {
+    await VideoEmbedPrivacyDomainModel.addDomains(domains.map(d => d.domain), replayVideo.id)
+  }
+
   await assignReplayFilesToVideo({ video: replayVideo, replayDirectory })
 
   logger.info(`Removing replay directory ${replayDirectory}`, lTags(liveVideo.uuid))
@@ -197,38 +227,31 @@ async function saveReplayToExternalVideo (options: {
 }
 
 async function copyOrRegenerateThumbnails (options: {
-  liveVideo: MVideoThumbnail
-  replayVideo: MVideoWithFileThumbnail
+  liveVideo: MVideoThumbnails
+  replayVideo: MVideoWithAllFiles
 }) {
   const { liveVideo, replayVideo } = options
 
   let thumbnails: MThumbnail[] = []
-  const preview = liveVideo.getPreview()
 
-  if (preview?.automaticallyGenerated === false) {
-    thumbnails = await Promise.all(
-      [ ThumbnailType.MINIATURE, ThumbnailType.PREVIEW ].map(type => {
-        return updateLocalVideoMiniatureFromExisting({
-          inputPath: preview.getPath(),
-          video: replayVideo,
-          type,
-          automaticallyGenerated: false,
-          keepOriginal: true
-        })
-      })
-    )
+  const bestThumbnail = liveVideo.getBestThumbnail('16:9')
+
+  if (bestThumbnail.automaticallyGenerated === false) {
+    thumbnails = await createLocalVideoThumbnailsFromImage({
+      inputPath: bestThumbnail.getFSPath(),
+      video: replayVideo,
+      automaticallyGenerated: false,
+      keepOriginal: true
+    })
   } else {
-    thumbnails = await generateLocalVideoMiniature({
+    thumbnails = await createLocalVideoThumbnailsFromVideo({
       video: replayVideo,
       videoFile: replayVideo.getMaxQualityFile(VideoFileStream.VIDEO) || replayVideo.getMaxQualityFile(VideoFileStream.AUDIO),
-      types: [ ThumbnailType.MINIATURE, ThumbnailType.PREVIEW ],
       ffprobe: undefined
     })
   }
 
-  for (const thumbnail of thumbnails) {
-    await replayVideo.addAndSaveThumbnail(thumbnail)
-  }
+  await replayVideo.replaceAndSaveThumbnails(thumbnails)
 }
 
 async function replaceLiveByReplay (options: {
@@ -242,6 +265,17 @@ async function replaceLiveByReplay (options: {
 
   const replaySettings = await VideoLiveReplaySettingModel.load(liveSession.replaySettingId)
   const videoWithFiles = await VideoModel.loadFull(liveVideo.id)
+
+  if (!videoWithFiles || !replaySettings) {
+    logger.warn(
+      'Live video %d or its replay settings %d do not exist anymore, skipping live-to-replay replacement.',
+      liveVideo.id,
+      liveSession.replaySettingId,
+      lTags()
+    )
+    return
+  }
+
   const hlsPlaylist = videoWithFiles.getHLSPlaylist()
   const replayInAnotherDirectory = isVideoInPublicDirectory(liveVideo.privacy) !== isVideoInPublicDirectory(replaySettings.privacy)
 
@@ -286,7 +320,7 @@ async function replaceLiveByReplay (options: {
 
   // Regenerate the thumbnail & preview?
   try {
-    await regenerateMiniaturesIfNeeded(videoWithFiles, undefined)
+    await regenerateLocalVideoThumbnailsFromVideoIfNeeded(videoWithFiles, undefined)
   } catch (err) {
     logger.error(`Cannot regenerate thumbnails of ended live ${videoWithFiles.uuid}`, lTags(liveVideo.uuid))
   }
@@ -323,6 +357,7 @@ async function assignReplayFilesToVideo (options: {
       await generateHlsPlaylistResolutionFromTS({
         video,
         inputFileMutexReleaser: null, // Already locked in parent
+        preventInputFileLocking: true,
         concatenatedTsFilePath,
         resolution,
         fps,
@@ -362,7 +397,7 @@ async function cleanupLiveAndFederate (options: {
 }
 
 function createStoryboardJob (video: MVideo) {
-  return JobQueue.Instance.createJob(buildStoryboardJobIfNeeded({ video, federate: true }))
+  return addLocalOrRemoteStoryboardJobIfNeeded({ video, federate: true })
 }
 
 async function hasReplayFiles (replayDirectory: string) {

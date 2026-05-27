@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core'
-import { ActivatedRouteSnapshot } from '@angular/router'
+import { ActivatedRouteSnapshot, Router } from '@angular/router'
 import { AuthService, ServerService, UserService } from '@app/core'
 import { listUserChannelsForSelect } from '@app/helpers'
 import { VideoCaptionService } from '@app/shared/shared-main/video-caption/video-caption.service'
@@ -8,20 +8,26 @@ import { VideoDetails } from '@app/shared/shared-main/video/video-details.model'
 import { VideoPasswordService } from '@app/shared/shared-main/video/video-password.service'
 import { VideoService } from '@app/shared/shared-main/video/video.service'
 import { LiveVideoService } from '@app/shared/shared-video-live/live-video.service'
+import { PlayerSettingsService } from '@app/shared/shared-video/player-settings.service'
+import { VideoEmbedPrivacyService } from '@app/shared/shared-video/video-embed-privacy.service'
 import {
+  ConstantLabel,
   LiveVideo,
+  PlayerVideoSettings,
   UserVideoQuota,
   VideoCaption,
   VideoChapter,
-  VideoConstant,
+  VideoEmbedPrivacy,
   VideoPassword,
   VideoPrivacy,
   VideoPrivacyType,
   VideoSource
 } from '@peertube/peertube-models'
-import { forkJoin, of } from 'rxjs'
-import { map, switchMap } from 'rxjs/operators'
+import { logger } from '@root-helpers/logger'
+import { forkJoin, of, throwError } from 'rxjs'
+import { catchError, map, switchMap } from 'rxjs/operators'
 import { SelectChannelItem } from '../../../types'
+import { VideoEdit } from '../shared-manage/common/video-edit.model'
 
 export type VideoManageResolverData = {
   video: VideoDetails
@@ -32,11 +38,15 @@ export type VideoManageResolverData = {
   live: LiveVideo
   videoPasswords: VideoPassword[]
   userQuota: UserVideoQuota
-  privacies: VideoConstant<VideoPrivacyType>[]
+  privacies: ConstantLabel<VideoPrivacyType>[]
+  videoEdit: VideoEdit
+  playerSettings: PlayerVideoSettings
+  embedPrivacy: VideoEmbedPrivacy
 }
 
 @Injectable()
 export class VideoManageResolver {
+  private router = inject(Router)
   private videoService = inject(VideoService)
   private liveVideoService = inject(LiveVideoService)
   private authService = inject(AuthService)
@@ -45,6 +55,8 @@ export class VideoManageResolver {
   private videoPasswordService = inject(VideoPasswordService)
   private userService = inject(UserService)
   private serverService = inject(ServerService)
+  private playerSettingsService = inject(PlayerSettingsService)
+  private videoEmbedPrivacyService = inject(VideoEmbedPrivacyService)
 
   resolve (route: ActivatedRouteSnapshot) {
     const uuid: string = route.params['uuid']
@@ -52,19 +64,54 @@ export class VideoManageResolver {
     return this.videoService.getVideo({ videoId: uuid })
       .pipe(
         switchMap(video => forkJoin(this.buildObservables(video))),
-        map(([ video, videoSource, userChannels, captions, chapters, live, videoPasswords, userQuota, privacies ]) =>
-          ({
+        switchMap(
+          async ([
             video,
+            videoSource,
             userChannels,
             captions,
             chapters,
-            videoSource,
             live,
             videoPasswords,
             userQuota,
-            privacies
-          }) as VideoManageResolverData
-        )
+            privacies,
+            playerSettings,
+            embedPrivacy
+          ]) => {
+            const videoEdit = await VideoEdit.createFromAPI(this.serverService.getHTMLConfig(), {
+              video,
+              captions,
+              chapters,
+              live,
+              videoSource,
+              playerSettings,
+              videoPasswords: videoPasswords.map(p => p.password),
+              embedPrivacy
+            })
+
+            return {
+              video,
+              userChannels,
+              captions,
+              chapters,
+              videoSource,
+              live,
+              videoPasswords,
+              userQuota,
+              privacies,
+              videoEdit,
+              playerSettings,
+              embedPrivacy
+            } satisfies VideoManageResolverData
+          }
+        ),
+        catchError(err => {
+          logger.error('Cannot fetch video information', err)
+
+          this.router.navigate([ '/401' ], { state: { obj: err }, skipLocationChange: true })
+
+          return throwError(() => err)
+        })
       )
   }
 
@@ -74,7 +121,7 @@ export class VideoManageResolver {
 
       this.videoService.getSource(video.id),
 
-      listUserChannelsForSelect(this.authService),
+      listUserChannelsForSelect(this.authService, { includeCollaborations: true }),
 
       this.videoCaptionService
         .listCaptions(video.uuid)
@@ -94,11 +141,15 @@ export class VideoManageResolver {
 
       video.privacy.id === VideoPrivacy.PASSWORD_PROTECTED
         ? this.videoPasswordService.getVideoPasswords({ videoUUID: video.uuid })
-        : of([]),
+        : of([] as VideoPassword[]),
 
       this.userService.getMyVideoQuotaUsed(),
 
-      this.serverService.getVideoPrivacies()
-    ]
+      this.serverService.getVideoPrivacies(),
+
+      this.playerSettingsService.getVideoSettings({ videoId: video.uuid, raw: true }),
+
+      this.videoEmbedPrivacyService.getPrivacy({ videoId: video.uuid })
+    ] as const
   }
 }

@@ -5,11 +5,11 @@ import {
   browserSleep,
   findEmailTo,
   getEmailPort,
-  getScreenshotPath,
   getVerificationLink,
   go,
   isMobileDevice,
   MockSMTPServer,
+  prepareWebBrowser,
   waitServerUp
 } from '../utils'
 
@@ -29,7 +29,7 @@ describe('User settings', () => {
 
     await MockSMTPServer.Instance.collectEmails(await getEmailPort(), emails)
 
-    await browser.maximizeWindow()
+    await prepareWebBrowser()
   })
 
   describe('Email', function () {
@@ -70,9 +70,7 @@ describe('User settings', () => {
     })
   })
 
-  after(async () => {
+  after(() => {
     MockSMTPServer.Instance.kill()
-
-    await browser.saveScreenshot(getScreenshotPath('after-test.png'))
   })
 })

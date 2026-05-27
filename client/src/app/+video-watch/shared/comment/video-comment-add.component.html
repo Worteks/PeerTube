@@ -8,14 +8,14 @@
         [readonly]="(user() === null) ? true : false"
         (click)="openVisitorModal($event)"
         formControlName="text" [ngClass]="{ 'input-error': formErrors['text'] }"
-        (keyup.control.enter)="onValidKey()" (keyup.meta.enter)="onValidKey()" #textarea
-      >
+        (keyup.control.enter)="formValidated()" (keyup.meta.enter)="formValidated()" #textarea
+        >
       </textarea>
 
       <my-help
         [ngClass]="{ 'is-rtl': isRTL() }" class="markdown-guide" helpType="custom" iconName="markdown"
         tooltipPlacement="left auto" autoClose="true" i18n-title title="Markdown compatible"
-      >
+        >
         <span i18n>Markdown compatible that supports:</span>
 
         <ul>
@@ -37,22 +37,24 @@
           </li>
         </ul>
       </my-help>
-      <div *ngIf="formErrors.text" class="form-error" role="alert">
-        {{ formErrors.text }}
-      </div>
+      @if (formErrors.text) {
+        <div class="form-error" role="alert">
+          {{ formErrors.text }}
+        </div>
+      }
     </div>
   </div>
 
   <div class="comment-buttons">
-    @if (isAddButtonDisplayed()) {
+    @if (hasCancel()) {
       <button class="peertube-button tertiary-button cancel-button me-2" (click)="cancelCommentReply()" type="button" i18n>
         Cancel
       </button>
-
-      <button class="peertube-button primary-button" [disabled]="!form.valid || addingComment">
-        {{ addingCommentButtonValue }}
-      </button>
     }
+
+    <button class="peertube-button primary-button" [disabled]="!form.valid || addingComment">
+      {{ addingCommentButtonValue }}
+    </button>
   </div>
 </form>
 
@@ -67,7 +69,7 @@
 
   <div class="modal-body">
     <span i18n>
-      You can comment using an account on any ActivityPub-compatible instance (PeerTube/Mastodon/Pleroma account for example).
+      You can comment using an account on any ActivityPub-compatible instance (PeerTube/Mastodon account for example).
     </span>
 
     <my-remote-subscribe [interact]="true" [uri]="getUri()"></my-remote-subscribe>
@@ -77,9 +79,9 @@
     <input
       type="button" role="button" i18n-value value="Cancel" class="peertube-button secondary-button"
       (click)="hideModals()" (key.enter)="hideModals()"
-    >
+      >
 
-    <my-login-link i18n-label label="Login to comment" className="peertube-button-link primary-button"></my-login-link>
+    <my-login-link i18n-label label="Login to comment" className="peertube-button-link primary-button" (click)="hideModals()"></my-login-link>
   </div>
 </ng-template>
 
@@ -94,9 +96,11 @@
 
   <div class="modal-body">
     <div class="emoji-flex">
-      <div class="emoji-flex-item" *ngFor="let emojiMarkup of getEmojiMarkupList()">
-        {{ emojiMarkup.emoji }} <code>:{{ emojiMarkup.name }}:</code>
-      </div>
+      @for (emojiMarkup of getEmojiMarkupList(); track emojiMarkup) {
+        <div class="emoji-flex-item">
+          {{ emojiMarkup.emoji }} <code>:{{ emojiMarkup.name }}:</code>
+        </div>
+      }
     </div>
   </div>
 </ng-template>

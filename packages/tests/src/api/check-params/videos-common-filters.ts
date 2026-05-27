@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { pick } from '@peertube/peertube-core-utils'
-import { HttpStatusCode, HttpStatusCodeType, UserRole, VideoInclude, VideoPrivacy, VideosCommonQuery } from '@peertube/peertube-models'
+import { HttpStatusCode, HttpStatusCodeType, UserRole, VideoInclude, VideoPrivacy, VideoState, VideosCommonQuery } from '@peertube/peertube-models'
 import {
   cleanupTests,
   createSingleServer,
@@ -51,6 +51,7 @@ describe('Test video filters validators', function () {
         | 'include'
         | 'privacyOneOf'
         | 'autoTagOneOf'
+        | 'stateOneOf'
         | 'excludeAlreadyWatched'
         | 'nsfw'
         | 'nsfwFlagsExcluded'
@@ -59,7 +60,8 @@ describe('Test video filters validators', function () {
       & {
         token?: string
         expectedStatus: HttpStatusCodeType
-        unauthenticatedUser?: boolean
+        unauthenticatedUser?: boolean // default false
+        skipMyVideos?: boolean // default  false
         filter?: string
       }
   ) {
@@ -70,7 +72,7 @@ describe('Test video filters validators', function () {
       '/api/v1/search/videos'
     ]
 
-    if (options.unauthenticatedUser !== true) {
+    if (options.unauthenticatedUser !== true && options.skipMyVideos !== true) {
       paths.push('/api/v1/users/me/videos')
     }
 
@@ -87,6 +89,7 @@ describe('Test video filters validators', function () {
           'isLocal',
           'privacyOneOf',
           'autoTagOneOf',
+          'stateOneOf',
           'include',
           'excludeAlreadyWatched',
           'filter',
@@ -129,7 +132,20 @@ describe('Test video filters validators', function () {
       await testEndpoints({
         privacyOneOf: [ VideoPrivacy.INTERNAL ],
         token: userAccessToken,
+        skipMyVideos: true,
         expectedStatus: HttpStatusCode.UNAUTHORIZED_401
+      })
+    })
+
+    it('Should succeed to use privacyOneOf to our own videos', async function () {
+      await makeGetRequest({
+        url: server.url,
+        path: '/api/v1/users/me/videos',
+        token: userAccessToken,
+        query: {
+          privacyOneOf: [ VideoPrivacy.INTERNAL ]
+        },
+        expectedStatus: HttpStatusCode.OK_200
       })
     })
   })
@@ -146,6 +162,32 @@ describe('Test video filters validators', function () {
     it('Should succeed to use autoTagOneOf with a moderator', async function () {
       await testEndpoints({
         autoTagOneOf: [ 'test' ],
+        token: moderatorAccessToken,
+        expectedStatus: HttpStatusCode.OK_200
+      })
+    })
+  })
+
+  describe('State', function () {
+    it('Should fail to use stateOneOf with a simple user', async function () {
+      await testEndpoints({
+        stateOneOf: [ VideoState.PUBLISHED ],
+        token: userAccessToken,
+        expectedStatus: HttpStatusCode.UNAUTHORIZED_401
+      })
+    })
+
+    it('Should fail with an invalid stateOneOf value', async function () {
+      await testEndpoints({
+        stateOneOf: [ 'toto' ] as any,
+        token: moderatorAccessToken,
+        expectedStatus: HttpStatusCode.BAD_REQUEST_400
+      })
+    })
+
+    it('Should succeed to use stateOneOf with a moderator', async function () {
+      await testEndpoints({
+        stateOneOf: [ VideoState.PUBLISHED, VideoState.TO_TRANSCODE ],
         token: moderatorAccessToken,
         expectedStatus: HttpStatusCode.OK_200
       })

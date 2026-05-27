@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common'
-import { ChangeDetectorRef, Component, inject, NgZone, OnDestroy, OnInit } from '@angular/core'
+import { ChangeDetectorRef, Component, inject, NgZone, OnDestroy, OnInit, viewChild } from '@angular/core'
 import { AbstractControl, FormArray, FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms'
 import { Router, RouterLink } from '@angular/router'
-import { ConfirmService, HooksService, Notifier, PluginService, ServerService } from '@app/core'
+import { AuthService, ConfirmService, HooksService, Notifier, PluginService, ServerService } from '@app/core'
 import { BuildFormArgument, BuildFormValidator } from '@app/shared/form-validators/form-validator.model'
 import {
   VIDEO_CATEGORY_VALIDATOR,
@@ -17,8 +17,10 @@ import {
   VIDEO_SUPPORT_VALIDATOR,
   VIDEO_TAGS_ARRAY_VALIDATOR
 } from '@app/shared/form-validators/video-validators'
+import { ChangeOwnershipService } from '@app/shared/shared-change-ownership/change-ownership.service'
+import { SendChangeOwnershipComponent } from '@app/shared/shared-change-ownership/send-change-ownership.component'
 import { DynamicFormFieldComponent } from '@app/shared/shared-forms/dynamic-form-field.component'
-import { FormReactiveErrors, FormReactiveService, FormReactiveValidationMessages } from '@app/shared/shared-forms/form-reactive.service'
+import { FormReactiveErrors, FormReactiveMessages, FormReactiveService } from '@app/shared/shared-forms/form-reactive.service'
 import { FormValidatorService } from '@app/shared/shared-forms/form-validator.service'
 import { InputTextComponent } from '@app/shared/shared-forms/input-text.component'
 import { MarkdownTextareaComponent } from '@app/shared/shared-forms/markdown-textarea.component'
@@ -26,24 +28,28 @@ import { PeertubeCheckboxComponent } from '@app/shared/shared-forms/peertube-che
 import { SelectChannelComponent } from '@app/shared/shared-forms/select/select-channel.component'
 import { SelectOptionsComponent } from '@app/shared/shared-forms/select/select-options.component'
 import { SelectTagsComponent } from '@app/shared/shared-forms/select/select-tags.component'
+import { ButtonComponent } from '@app/shared/shared-main/buttons/button.component'
+import { AlertComponent } from '@app/shared/shared-main/common/alert.component'
 import { PeerTubeTemplateDirective } from '@app/shared/shared-main/common/peertube-template.directive'
 import { InstanceService } from '@app/shared/shared-main/instance/instance.service'
 import { VideoService } from '@app/shared/shared-main/video/video.service'
 import {
+  ChangeOwnership,
+  ChangeOwnershipState,
+  ConstantLabel,
   HTMLServerConfig,
   RegisterClientFormFieldOptions,
   RegisterClientVideoFieldOptions,
-  VideoConstant,
   VideoPrivacy,
   VideoPrivacyType
 } from '@peertube/peertube-models'
+import { SelectChannelItem } from '@pt-types'
 import { logger } from '@root-helpers/logger'
 import { PluginInfo } from '@root-helpers/plugins-manager'
 import debug from 'debug'
-import { CalendarModule } from 'primeng/calendar'
+import { DatePickerModule } from 'primeng/datepicker'
 import { forkJoin, Subscription } from 'rxjs'
 import { map } from 'rxjs/operators'
-import { SelectChannelItem } from 'src/types/select-options-item.model'
 import { GlobalIconComponent } from '../../../shared/shared-icons/global-icon.component'
 import { MarkdownHintComponent } from '../../../shared/shared-main/text/markdown-hint.component'
 import { I18nPrimengCalendarService } from '../common/i18n-primeng-calendar.service'
@@ -71,7 +77,7 @@ type Form = {
   language: FormControl<string>
   description: FormControl<string>
   tags: FormArray<FormControl<string>>
-  previewfile: FormControl<Blob>
+  thumbnailfile: FormControl<Blob>
   support: FormControl<string>
   schedulePublicationAt: FormControl<Date>
   pluginData: FormGroup
@@ -94,16 +100,20 @@ type Form = {
     SelectChannelComponent,
     SelectOptionsComponent,
     InputTextComponent,
-    CalendarModule,
+    DatePickerModule,
     PeertubeCheckboxComponent,
     ThumbnailManagerComponent,
     GlobalIconComponent,
     MarkdownHintComponent,
-    RouterLink
+    RouterLink,
+    AlertComponent,
+    ButtonComponent,
+    SendChangeOwnershipComponent
   ]
 })
 export class VideoMainInfoComponent implements OnInit, OnDestroy {
   private formValidatorService = inject(FormValidatorService)
+  private authService = inject(AuthService)
   private formReactiveService = inject(FormReactiveService)
   private videoService = inject(VideoService)
   private serverService = inject(ServerService)
@@ -117,18 +127,21 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
   private confirmService = inject(ConfirmService)
   private notifier = inject(Notifier)
   private router = inject(Router)
+  private changeOwnershipService = inject(ChangeOwnershipService)
+
+  readonly sendChangeOwnershipModal = viewChild<SendChangeOwnershipComponent>('sendChangeOwnershipModal')
 
   form: FormGroup<Form>
   formErrors: FormReactiveErrors = {}
-  validationMessages: FormReactiveValidationMessages = {}
+  validationMessages: FormReactiveMessages = {}
 
   forbidScheduledPublication: boolean
   hideWaitTranscoding: boolean
 
-  videoPrivacies: VideoConstant<VideoEditPrivacyType>[] = []
-  videoCategories: VideoConstant<number>[] = []
-  videoLicences: VideoConstant<number>[] = []
-  videoLanguages: VideoConstant<string>[] = []
+  videoPrivacies: ConstantLabel<VideoEditPrivacyType>[] = []
+  videoCategories: ConstantLabel<number>[] = []
+  videoLicences: ConstantLabel<number>[] = []
+  videoLanguages: ConstantLabel<string>[] = []
 
   pluginDataFormGroup: FormGroup
 
@@ -140,7 +153,6 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
 
   calendarTimezone: string
   calendarDateFormat: string
-  myYearRange: string
 
   serverConfig: HTMLServerConfig
 
@@ -154,13 +166,14 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
   privacies: VideoPrivacyType[] = []
   videoEdit: VideoEdit
 
+  pendingOwnershipRequest: ChangeOwnership
+
   private schedulerInterval: any
   private updatedSub: Subscription
 
   constructor () {
     this.calendarTimezone = this.i18nPrimengCalendarService.getTimezone()
     this.calendarDateFormat = this.i18nPrimengCalendarService.getDateFormat()
-    this.myYearRange = this.i18nPrimengCalendarService.getVideoPublicationYearRange()
   }
 
   ngOnInit () {
@@ -184,10 +197,11 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
       .subscribe(res => this.videoCategories = res)
 
     this.serverService.getVideoLicences()
-      .subscribe(res => this.videoLicences = res)
+      .subscribe(res => this.videoLicences = this.videoService.explainedLicenceLabels(res))
 
     this.buildLanguages()
     this.buildPrivacies()
+    this.loadOwnershipRequest()
 
     this.ngZone.runOutsideAngular(() => {
       this.schedulerInterval = setInterval(() => this.minScheduledDate = new Date(), 1000 * 60) // Update every minute
@@ -236,7 +250,7 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
 
   private buildLanguages () {
     forkJoin([
-      this.instanceService.getAbout(),
+      this.instanceService.getAboutWithCache(),
       this.serverService.getVideoLanguages()
     ]).pipe(map(([ about, languages ]) => ({ about, languages })))
       .subscribe(({ about, languages }) => {
@@ -278,7 +292,7 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
       language: VIDEO_LANGUAGE_VALIDATOR,
       description: VIDEO_DESCRIPTION_VALIDATOR,
       tags: VIDEO_TAGS_ARRAY_VALIDATOR,
-      previewfile: null,
+      thumbnailfile: null,
       support: VIDEO_SUPPORT_VALIDATOR,
       schedulePublicationAt: VIDEO_SCHEDULE_PUBLICATION_AT_VALIDATOR
     }
@@ -337,7 +351,7 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
     const { pluginData } = this.videoEdit.toCommonFormPatch()
 
     const pluginObj: { [id: string]: BuildFormValidator } = {}
-    const pluginValidationMessages: FormReactiveValidationMessages = {}
+    const pluginValidationMessages: FormReactiveMessages = {}
     const pluginFormErrors: FormReactiveErrors = {}
     const pluginDefaults: Record<string, string | boolean> = {}
 
@@ -410,7 +424,7 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
 
       waitTranscodingControl.disable()
       if (!isInitialPatch) waitTranscodingControl.setValue(false)
-    } else {
+    } else if (waitTranscodingControl.disabled) {
       scheduleControl.clearValidators()
       waitTranscodingControl.enable()
 
@@ -469,7 +483,7 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
 
   // ---------------------------------------------------------------------------
 
-  canBeDeleted () {
+  canBeDeletedOrTransferred () {
     return !!this.videoEdit.getVideoAttributes().id
   }
 
@@ -488,7 +502,52 @@ export class VideoMainInfoComponent implements OnInit, OnDestroy {
           this.router.navigate([ '/my-library/videos' ])
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
+  }
+
+  // ---------------------------------------------------------------------------
+
+  showChangeOwnershipModal () {
+    this.sendChangeOwnershipModal().show()
+  }
+
+  onChangeOwnershipRequest (ownershipChange: ChangeOwnership) {
+    this.pendingOwnershipRequest = ownershipChange
+  }
+
+  async cancelOwnershipRequest () {
+    const message =
+      $localize`Are you sure you want to cancel the ownership change request to "${this.pendingOwnershipRequest.nextOwnerAccount.name}"?`
+    const res = await this.confirmService.confirm(message, $localize`Cancel request`)
+    if (res === false) return
+
+    this.changeOwnershipService.cancelVideo(this.pendingOwnershipRequest.id)
+      .subscribe({
+        next: () => {
+          this.notifier.success($localize`Ownership change request cancelled`)
+          this.pendingOwnershipRequest = null
+        },
+
+        error: err => this.notifier.handleError(err)
+      })
+  }
+
+  loadOwnershipRequest () {
+    // Still uploading the video
+    if (!this.videoEdit.getVideoAttributes().id) return
+
+    this.changeOwnershipService.listFromVideo(this.videoEdit.getVideoAttributes().id, ChangeOwnershipState.PENDING)
+      .subscribe(({ data }) => {
+        if (data.length === 0) return
+
+        this.pendingOwnershipRequest = data[0]
+      })
+  }
+
+  // ---------------------------------------------------------------------------
+
+  isVideoOwner () {
+    return this.videoEdit.getVideoAttributes().ownerAccountId === this.authService.getUser().account.id
   }
 }

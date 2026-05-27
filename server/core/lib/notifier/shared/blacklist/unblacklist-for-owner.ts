@@ -1,13 +1,14 @@
+import { UserNotificationType } from '@peertube/peertube-models'
+import { tu } from '@server/helpers/i18n.js'
 import { logger } from '@server/helpers/logger.js'
 import { CONFIG } from '@server/initializers/config.js'
 import { WEBSERVER } from '@server/initializers/constants.js'
-import { UserModel } from '@server/models/user/user.js'
 import { UserNotificationModel } from '@server/models/user/user-notification.js'
-import { MUserDefault, MUserWithNotificationSetting, MVideoFullLight, UserNotificationModelForApi } from '@server/types/models/index.js'
-import { UserNotificationType } from '@peertube/peertube-models'
+import { UserModel } from '@server/models/user/user.js'
+import { MUserDefault, MUserWithNotificationSetting, MVideoAccountLight, UserNotificationModelForApi } from '@server/types/models/index.js'
 import { AbstractNotification } from '../common/abstract-notification.js'
 
-export class UnblacklistForOwner extends AbstractNotification <MVideoFullLight> {
+export class UnblacklistForOwner extends AbstractNotification<MVideoAccountLight> {
   private user: MUserDefault
 
   async prepare () {
@@ -39,16 +40,23 @@ export class UnblacklistForOwner extends AbstractNotification <MVideoFullLight> 
     return notification
   }
 
-  createEmail (to: string) {
+  createEmail (user: MUserWithNotificationSetting) {
+    const to = { email: user.email, language: user.getLanguage() }
+
     const video = this.payload
     const videoUrl = WEBSERVER.URL + video.getWatchStaticPath()
 
     return {
+      template: 'video-owner-unblacklist',
       to,
-      subject: `Video ${video.name} unblacklisted`,
-      text: `Your video "${video.name}" (${videoUrl}) on ${CONFIG.INSTANCE.NAME} has been unblacklisted.`,
+      subject: tu('Your video has been unblocked', user),
       locals: {
-        title: 'Your video was unblacklisted'
+        instanceName: CONFIG.INSTANCE.NAME,
+        videoName: video.name,
+        action: {
+          text: tu('View video', user),
+          url: videoUrl
+        }
       }
     }
   }

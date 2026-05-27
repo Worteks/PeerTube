@@ -1,11 +1,12 @@
 import { CommonModule } from '@angular/common'
-import { Component, OnDestroy, OnInit, inject, output, viewChild } from '@angular/core'
+import { Component, OnDestroy, OnInit, inject, viewChild } from '@angular/core'
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router'
 import { Notifier, PeerTubeSocket, ScreenService } from '@app/core'
 import { GlobalIconComponent } from '@app/shared/shared-icons/global-icon.component'
+import { ButtonComponent } from '@app/shared/shared-main/buttons/button.component'
 import { LoaderComponent } from '@app/shared/shared-main/common/loader.component'
 import { UserNotificationService } from '@app/shared/shared-main/users/user-notification.service'
-import { UserNotificationsComponent } from '@app/shared/standalone-notifications/user-notifications.component'
+import { UserNotificationsComponent } from '@app/shared/shared-notifications/user-notifications.component'
 import { NgbDropdown, NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap'
 import { Subject, Subscription } from 'rxjs'
 import { filter } from 'rxjs/operators'
@@ -21,7 +22,8 @@ import { filter } from 'rxjs/operators'
     LoaderComponent,
     RouterLink,
     RouterLinkActive,
-    NgbDropdownModule
+    NgbDropdownModule,
+    ButtonComponent
   ]
 })
 export class NotificationDropdownComponent implements OnInit, OnDestroy {
@@ -32,8 +34,6 @@ export class NotificationDropdownComponent implements OnInit, OnDestroy {
   private router = inject(Router)
 
   readonly dropdown = viewChild<NgbDropdown>('dropdown')
-
-  readonly navigate = output<HTMLAnchorElement>()
 
   unreadNotifications = 0
   loaded = false
@@ -53,7 +53,7 @@ export class NotificationDropdownComponent implements OnInit, OnDestroy {
           this.subscribeToNotifications()
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
 
     this.routeSub = this.router.events
@@ -91,7 +91,6 @@ export class NotificationDropdownComponent implements OnInit, OnDestroy {
 
   onNavigate (link: HTMLAnchorElement) {
     this.closeDropdown()
-    this.navigate.emit(link)
   }
 
   markAllAsRead () {

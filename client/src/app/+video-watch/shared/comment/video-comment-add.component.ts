@@ -1,5 +1,17 @@
-import { getLocaleDirection, NgClass, NgFor, NgIf } from '@angular/common'
-import { Component, ElementRef, inject, input, LOCALE_ID, OnChanges, OnInit, output, SimpleChanges, viewChild } from '@angular/core'
+import { getLocaleDirection, NgClass } from '@angular/common'
+import {
+  booleanAttribute,
+  Component,
+  ElementRef,
+  inject,
+  input,
+  LOCALE_ID,
+  OnChanges,
+  OnInit,
+  output,
+  SimpleChanges,
+  viewChild
+} from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
 import { Notifier, User } from '@app/core'
 import { VIDEO_COMMENT_TEXT_VALIDATOR } from '@app/shared/form-validators/video-comment-validators'
@@ -29,11 +41,9 @@ import { Observable } from 'rxjs'
     TextareaAutoResizeDirective,
     NgClass,
     HelpComponent,
-    NgIf,
     GlobalIconComponent,
     RemoteSubscribeComponent,
-    LoginLinkComponent,
-    NgFor
+    LoginLinkComponent
   ]
 })
 export class VideoCommentAddComponent extends FormReactive implements OnChanges, OnInit {
@@ -48,7 +58,8 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
   readonly videoPassword = input<string>(undefined)
   readonly parentComment = input<VideoComment>(undefined)
   readonly parentComments = input<VideoComment[]>(undefined)
-  readonly focusOnInit = input(false)
+  readonly focusOnInit = input(false, { transform: booleanAttribute })
+  readonly hasCancel = input(true, { transform: booleanAttribute })
   readonly textValue = input<string>(undefined)
 
   readonly commentCreated = output<VideoComment>()
@@ -102,13 +113,6 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
     return this.emojiMarkupList
   }
 
-  onValidKey () {
-    this.forceCheck()
-    if (!this.form.valid) return
-
-    this.formValidated()
-  }
-
   openVisitorModal (event: any) {
     if (this.user() === null) { // we only open it for visitors
       // fixing ng-bootstrap ModalService and the "Expression Changed After It Has Been Checked" Error
@@ -132,6 +136,9 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
     // If we validate very quickly the comment form, we might comment twice
     if (this.addingComment) return
 
+    this.forceCheck()
+    if (!this.form.valid) return
+
     this.addingComment = true
 
     const commentCreate: VideoCommentCreate = this.form.value
@@ -153,13 +160,9 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
       error: err => {
         this.addingComment = false
 
-        this.notifier.error(err.message)
+        this.notifier.handleError(err)
       }
     })
-  }
-
-  isAddButtonDisplayed () {
-    return this.form.value['text']
   }
 
   getUri () {
@@ -168,7 +171,8 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
 
   cancelCommentReply () {
     this.cancelEdit.emit(null)
-    this.form.value['text'] = this.textareaElement().nativeElement.value = ''
+    this.form.value['text'] = ''
+    this.textareaElement().nativeElement.value = ''
   }
 
   isRTL () {
@@ -209,6 +213,7 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
         .map(c => '@' + c.by)
 
       const mentionsSet = new Set(mentions)
+
       const mentionsText = Array.from(mentionsSet).join(' ') + ' '
 
       this.patchTextValue(mentionsText, this.focusOnInit())
@@ -216,6 +221,8 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
   }
 
   private patchTextValue (text: string, focus: boolean) {
+    const hasText = text && text.trim() !== ''
+
     setTimeout(() => {
       if (focus) {
         this.textareaElement().nativeElement.focus()
@@ -225,9 +232,9 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
       this.textareaElement().nativeElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
 
       // Use the native textarea autosize according to the text's break lines
-      this.textareaElement().nativeElement.dispatchEvent(new Event('input'))
+      if (hasText) this.textareaElement().nativeElement.dispatchEvent(new Event('input'))
     })
 
-    this.form.patchValue({ text })
+    if (hasText) this.form.patchValue({ text })
   }
 }

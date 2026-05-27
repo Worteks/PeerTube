@@ -1,7 +1,6 @@
-@use '_variables' as *;
-@use '_mixins' as *;
-@use '_form-mixins' as *;
-@import 'bootstrap/scss/mixins';
+@use "_variables" as *;
+@use "_mixins" as *;
+@use "_form-mixins" as *;
 
 .root {
   display: flex;
@@ -13,16 +12,36 @@
   }
 }
 
-.video-header-block {
+.video-header-block,
+.video-alert {
   border-radius: 14px;
+}
+
+.video-header-block,
+.video-warn {
   background-color: pvar(--bg-secondary-350);
+}
+
+.video-warn {
+  color: pvar(--fg-300);
+}
+
+.video-err {
+  border: 0;
+}
+
+.video-alert {
+  padding: 1rem 1.5rem;
+
+  @include font-size(14px);
 }
 
 .video-actions-container {
   position: sticky;
   top: pvar(--header-height);
   background-color: pvar(--bg);
-  z-index: 1;
+  // On top of input group addons
+  z-index: 6;
 }
 
 .video-actions {
@@ -70,11 +89,4 @@
     padding: 0.5rem;
     gap: 0.5rem;
   }
-}
-
-.video-state {
-  color: pvar(--fg-300);
-  padding: 1rem 1.5rem;
-
-  @include font-size(14px);
 }

@@ -27,10 +27,12 @@ import {
   UserVideoRateType,
   UserVideoRateUpdate,
   VideoChannel as VideoChannelServerModel,
-  VideoConstant,
+  ConstantLabel,
   VideoDetails as VideoDetailsServerModel,
   VideoFile,
   VideoFileMetadata,
+  VideoLicence,
+  VideoLicenceType,
   VideoPrivacy,
   VideoPrivacyType,
   VideosCommonQuery,
@@ -122,12 +124,15 @@ export class VideoService {
     sort: VideoSortField | SortMeta
     userChannels?: VideoChannelServerModel[]
 
+    includeCollaborations?: boolean
+
     isLive?: boolean
     privacyOneOf?: VideoPrivacyType[]
+    tagsOneOf?: string[]
     channelNameOneOf: string[]
     search?: string
   }): Observable<ResultList<Video>> {
-    const { videoPagination, restPagination, sort, channelNameOneOf, privacyOneOf, search } = options
+    const { videoPagination, restPagination, sort, channelNameOneOf, privacyOneOf, tagsOneOf, search, includeCollaborations } = options
 
     const pagination = videoPagination
       ? this.restService.componentToRestPagination(videoPagination)
@@ -141,12 +146,15 @@ export class VideoService {
     if (exists(options.isLive)) commonFilters.isLive = options.isLive
     if (options.search) commonFilters.search = search
     if (options.privacyOneOf) commonFilters.privacyOneOf = privacyOneOf
+    if (options.tagsOneOf) commonFilters.tagsOneOf = tagsOneOf
 
     params = this.restService.addObjectParams(params, commonFilters)
 
     if (channelNameOneOf !== undefined && channelNameOneOf.length !== 0) {
       params = this.restService.addArrayParams(params, 'channelNameOneOf', channelNameOneOf)
     }
+
+    if (includeCollaborations) params = params.set('includeCollaborations', 'true')
 
     return this.authHttp
       .get<ResultList<Video>>(UserService.BASE_USERS_URL + 'me/videos', { params })
@@ -213,6 +221,8 @@ export class VideoService {
       nsfw,
       nsfwFlagsExcluded,
       nsfwFlagsIncluded,
+      autoTagOneOf,
+      stateOneOf,
 
       ...otherOptions
     } = options
@@ -224,9 +234,12 @@ export class VideoService {
     let newParams = this.restService.addRestGetParams(params, pagination, this.buildListSort(sort))
 
     if (skipCount) newParams = newParams.set('skipCount', skipCount + '')
-    if (languageOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'languageOneOf', languageOneOf)
-    if (categoryOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'categoryOneOf', categoryOneOf)
-    if (privacyOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'privacyOneOf', privacyOneOf)
+    if (Array.isArray(languageOneOf)) newParams = this.restService.addArrayParams(newParams, 'languageOneOf', languageOneOf)
+    if (Array.isArray(categoryOneOf)) newParams = this.restService.addArrayParams(newParams, 'categoryOneOf', categoryOneOf)
+    if (Array.isArray(privacyOneOf)) newParams = this.restService.addArrayParams(newParams, 'privacyOneOf', privacyOneOf)
+    if (Array.isArray(autoTagOneOf)) newParams = this.restService.addArrayParams(newParams, 'autoTagOneOf', autoTagOneOf)
+    if (Array.isArray(autoTagOneOf)) newParams = this.restService.addArrayParams(newParams, 'autoTagOneOf', autoTagOneOf)
+    if (Array.isArray(stateOneOf)) newParams = this.restService.addArrayParams(newParams, 'stateOneOf', stateOneOf)
     if (search) newParams = newParams.set('search', search)
 
     newParams = this.buildNSFWParams(newParams, { nsfw, nsfwFlagsExcluded, nsfwFlagsIncluded })
@@ -526,7 +539,9 @@ export class VideoService {
       )
   }
 
-  explainedPrivacyLabels (serverPrivacies: VideoConstant<VideoPrivacyType>[], defaultPrivacyId: VideoPrivacyType = VideoPrivacy.PUBLIC) {
+  // ---------------------------------------------------------------------------
+
+  explainedPrivacyLabels (serverPrivacies: ConstantLabel<VideoPrivacyType>[], defaultPrivacyId: VideoPrivacyType = VideoPrivacy.PUBLIC) {
     const descriptions = {
       [VideoPrivacy.PRIVATE]: $localize`Only I can see this video`,
       [VideoPrivacy.UNLISTED]: $localize`Only shareable via a private link`,
@@ -549,6 +564,30 @@ export class VideoService {
     }
   }
 
+  explainedLicenceLabels (serverLicences: ConstantLabel<VideoLicenceType>[]) {
+    const descriptions = {
+      [VideoLicence['CC-BY']]: $localize`CC-BY`,
+      [VideoLicence['CC-BY-SA']]: $localize`CC-BY-SA`,
+      [VideoLicence['CC-BY-ND']]: $localize`CC-BY-ND`,
+      [VideoLicence['CC-BY-NC']]: $localize`CC-BY-NC`,
+      [VideoLicence['CC-BY-NC-SA']]: $localize`CC-BY-NC-SA`,
+      [VideoLicence['CC-BY-NC-ND']]: $localize`CC-BY-NC-ND`,
+      [VideoLicence['CC0']]: '',
+      [VideoLicence.PDM]: $localize`Public domain mark`,
+      [VideoLicence['ALL_RIGHTS_RESERVED']]: $localize`You are the owner of the content or you have the rights of the copyright holders`
+    }
+
+    return serverLicences.map(p => {
+      return {
+        ...p,
+
+        description: descriptions[p.id]
+      }
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+
   buildNSFWTooltip (video: Pick<VideoServerModel, 'nsfw' | 'nsfwFlags'>) {
     const flags: string[] = []
 
@@ -567,7 +606,7 @@ export class VideoService {
     return $localize`This video contains sensitive content: ${flags.join(' - ')}`
   }
 
-  getHighestAvailablePrivacy (serverPrivacies: VideoConstant<VideoPrivacyType>[]) {
+  getMostPrivatePrivacy (serverPrivacies: ConstantLabel<VideoPrivacyType>[]) {
     // We do not add a password as this requires additional configuration.
     const order = [
       VideoPrivacy.PRIVATE,
@@ -576,13 +615,17 @@ export class VideoService {
       VideoPrivacy.PUBLIC
     ]
 
+    return this.getPrivacyFromOrder(serverPrivacies, order)
+  }
+
+  private getPrivacyFromOrder (serverPrivacies: ConstantLabel<VideoPrivacyType>[], order: VideoPrivacyType[]) {
     for (const privacy of order) {
       if (serverPrivacies.find(p => p.id === privacy)) {
         return privacy
       }
     }
 
-    throw new Error('No highest privacy available')
+    throw new Error('No privacy available')
   }
 
   nsfwPolicyToParam (nsfwPolicy: NSFWPolicyType): BooleanBothQuery {

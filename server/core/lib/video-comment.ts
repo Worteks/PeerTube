@@ -11,8 +11,9 @@ import {
   MComment,
   MCommentFormattable,
   MCommentOwnerVideo,
-  MCommentOwnerVideoReply, MUserAccountId, MVideoAccountLight,
-  MVideoFullLight
+  MCommentOwnerVideoReply,
+  MUserAccountId,
+  MVideoAccountLight
 } from '../types/models/index.js'
 import { sendCreateVideoCommentIfNeeded, sendDeleteVideoComment, sendReplyApproval } from './activitypub/send/index.js'
 import { getLocalVideoCommentActivityPubUrl } from './activitypub/url.js'
@@ -29,7 +30,7 @@ export async function removeComment (commentArg: MComment, req: express.Request,
 
     videoCommentInstanceBefore = cloneDeep(comment)
 
-    if (comment.isOwned() || comment.Video.isOwned()) {
+    if (comment.isLocal() || comment.Video.isLocal()) {
       await sendDeleteVideoComment(comment, t)
     }
 
@@ -52,7 +53,7 @@ export async function approveComment (commentArg: MComment) {
     comment.heldForReview = false
     await comment.save({ transaction: t })
 
-    if (comment.isOwned()) {
+    if (comment.isLocal()) {
       await sendCreateVideoCommentIfNeeded(comment, t)
     } else {
       sendReplyApproval(comment, 'ApproveReply')
@@ -69,7 +70,7 @@ export async function approveComment (commentArg: MComment) {
 export async function createLocalVideoComment (options: {
   text: string
   inReplyToComment: MComment | null
-  video: MVideoFullLight
+  video: MVideoAccountLight
   user: MUserAccountId
 }) {
   const { user, video, text, inReplyToComment } = options
@@ -159,13 +160,13 @@ export async function shouldCommentBeHeldForReview (options: {
 }) {
   const { user, video, transaction, automaticTags } = options
 
-  if (video.isOwned() && user) {
+  if (video.isLocal() && user) {
     if (user.hasRight(UserRight.MANAGE_ANY_VIDEO_COMMENT)) return false
     if (user.Account.id === video.VideoChannel.accountId) return false
   }
 
   if (video.commentsPolicy === VideoCommentPolicy.REQUIRES_APPROVAL) return true
-  if (video.isOwned() !== true) return false
+  if (video.isLocal() !== true) return false
 
   const ownerAccountTags = automaticTags
     .filter(t => t.accountId === video.VideoChannel.accountId)

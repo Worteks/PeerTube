@@ -3,10 +3,13 @@ import { FileStorage } from '@peertube/peertube-models'
 import { getFFmpegCommandWrapperOptions } from '@server/helpers/ffmpeg/ffmpeg-options.js'
 import { logger } from '@server/helpers/logger.js'
 import { buildRequestError, doRequestAndSaveToFile, generateRequestStream } from '@server/helpers/requests.js'
+import { ThrottleStream } from '@server/helpers/stream-throttle.js'
 import { REQUEST_TIMEOUTS } from '@server/initializers/constants.js'
-import { MVideoFile, MVideoThumbnail } from '@server/types/models/index.js'
+import { isWebVideoFile, MVideoFile, MVideoThumbnails } from '@server/types/models/index.js'
+import { createReadStream } from 'fs'
 import { remove } from 'fs-extra/esm'
-import { Readable, Writable } from 'stream'
+import { PassThrough, Readable, Writable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { lTags } from './object-storage/shared/index.js'
 import {
   getHLSFileReadStream,
@@ -24,19 +27,29 @@ export class VideoDownload {
   private readonly tmpDestinations: string[] = []
   private ffmpegContainer: FFmpegContainer
 
-  private readonly video: MVideoThumbnail
+  private readonly video: MVideoThumbnails
   private readonly videoFiles: MVideoFile[]
 
+  private allowDirectSending = true
+
   constructor (options: {
-    video: MVideoThumbnail
+    video: MVideoThumbnails
     videoFiles: MVideoFile[]
   }) {
     this.video = options.video
     this.videoFiles = options.videoFiles
   }
 
-  async muxToMergeVideoFiles (output: Writable) {
+  async muxToMergeVideoFiles (output: Writable, options?: {
+    totalBytesPerSecond: number
+    bytesPerIpPerSecond: number
+    ip: string
+  }) {
     return new Promise<void>(async (res, rej) => {
+      const totalBytesPerSecond = options?.totalBytesPerSecond
+      const bytesPerIpPerSecond = options?.bytesPerIpPerSecond
+      const ip = options?.ip
+
       try {
         VideoDownload.totalDownloads++
 
@@ -51,40 +64,72 @@ export class VideoDownload {
           this.tmpDestinations.push(coverPath)
         }
 
-        logger.info(`Muxing files for video ${this.video.url}`, { inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
+        // Prefer sending the file directly if possible
+        if (this.allowDirectSending && !coverPath && this.inputs.length === 1) {
+          logger.info(`Piping single file for video ${this.video.url}`, { input: this.inputsToLog()[0], ...lTags(this.video.uuid) })
 
-        this.ffmpegContainer = new FFmpegContainer(getFFmpegCommandWrapperOptions('vod'))
+          const input = typeof this.inputs[0] === 'string'
+            ? createReadStream(this.inputs[0])
+            : this.inputs[0]
 
-        try {
-          await this.ffmpegContainer.mergeInputs({
-            inputs: this.inputs,
-            output,
-            logError: false,
+          const throttleStream = totalBytesPerSecond || bytesPerIpPerSecond
+            ? new ThrottleStream({ totalBytesPerSecond, bytesPerIpPerSecond, ip })
+            : new PassThrough()
 
-            // Include a cover if this is an audio file
-            coverPath
-          })
-
-          logger.info(`Mux ended for video ${this.video.url}`, { inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
+          await pipeline(input, throttleStream, output)
 
           res()
-        } catch (err) {
-          const message = err?.message || ''
+        } else {
+          logger.info(`Muxing files for video ${this.video.url}`, { inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
 
-          if (message.includes('Output stream closed')) {
-            logger.info(`Client aborted mux for video ${this.video.url}`, lTags(this.video.uuid))
-            return
+          this.ffmpegContainer = new FFmpegContainer(getFFmpegCommandWrapperOptions('vod'))
+
+          const throttleStream = totalBytesPerSecond || bytesPerIpPerSecond
+            ? new ThrottleStream({ totalBytesPerSecond, bytesPerIpPerSecond, ip })
+            : undefined
+
+          const finalOutput = throttleStream ?? output
+
+          const throttlePipeline = throttleStream
+            ? pipeline(throttleStream, output)
+            : Promise.resolve()
+
+          try {
+            // Run in parallel to prevent throttlePipeline unhandled rejection if an input stream errors
+            await Promise.all([
+              this.ffmpegContainer.mergeInputs({
+                inputs: this.inputs,
+                output: finalOutput,
+                logError: false,
+
+                // Include a cover if this is an audio file
+                coverPath
+              }),
+
+              throttlePipeline
+            ])
+
+            logger.info(`Mux ended for video ${this.video.url}`, { inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
+
+            res()
+          } catch (err) {
+            const message = err?.message || ''
+
+            if (message.includes('Output stream closed')) {
+              logger.info(`Client aborted mux for video ${this.video.url}`, lTags(this.video.uuid))
+              return
+            }
+
+            if (err.inputStreamError) {
+              err.inputStreamError = buildRequestError(err.inputStreamError)
+            }
+
+            logger.warn(`Cannot mux files of video ${this.video.url}`, { err, inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
+
+            throw err
+          } finally {
+            this.ffmpegContainer.forceKill()
           }
-
-          logger.warn(`Cannot mux files of video ${this.video.url}`, { err, inputs: this.inputsToLog(), ...lTags(this.video.uuid) })
-
-          if (err.inputStreamError) {
-            err.inputStreamError = buildRequestError(err.inputStreamError)
-          }
-
-          throw err
-        } finally {
-          this.ffmpegContainer.forceKill()
         }
       } catch (err) {
         rej(err)
@@ -105,11 +150,17 @@ export class VideoDownload {
     for (const videoFile of this.videoFiles) {
       if (!videoFile) continue
 
+      if (!isWebVideoFile(videoFile)) {
+        this.allowDirectSending = false
+      }
+
       maxResolution = Math.max(maxResolution, videoFile.resolution)
 
       const { input, isTmpDestination } = await this.buildMuxInput(
         videoFile,
-        err => {
+        errArg => {
+          const err = buildRequestError(errArg as any)
+
           logger.warn(`Cannot build mux input of video ${this.video.url}`, {
             err,
             inputs: this.inputsToLog(),
@@ -119,7 +170,7 @@ export class VideoDownload {
           this.cleanup()
             .catch(cleanupErr => logger.error('Cannot cleanup after mux error', { err: cleanupErr, ...lTags(this.video.uuid) }))
 
-          rej(buildRequestError(err as any))
+          rej(err)
         }
       )
 
@@ -185,7 +236,7 @@ export class VideoDownload {
       const destination = VideoPathManager.Instance.buildTMPDestination(videoFile.filename)
 
       if (videoFile.isHLS()) {
-        await makeHLSFileAvailable(this.video.getHLSPlaylist(), videoFile.filename, destination)
+        await makeHLSFileAvailable(this.video, videoFile.filename, destination)
       } else {
         await makeWebVideoFileAvailable(videoFile.filename, destination)
       }
@@ -195,7 +246,7 @@ export class VideoDownload {
 
     if (videoFile.isHLS()) {
       const { stream } = await getHLSFileReadStream({
-        playlist: this.video.getHLSPlaylist().withVideo(this.video),
+        video: this.video,
         filename: videoFile.filename,
         rangeHeader: undefined
       })
@@ -215,14 +266,14 @@ export class VideoDownload {
   // ---------------------------------------------------------------------------
 
   private async buildCoverInput () {
-    const preview = this.video.getPreview()
+    const thumbnail = this.video.getBestThumbnail('16:9')
 
-    if (this.video.isOwned()) return { coverPath: preview?.getPath() }
+    if (this.video.isLocal()) return { coverPath: thumbnail?.getFSPath() }
 
-    if (preview.fileUrl) {
-      const destination = VideoPathManager.Instance.buildTMPDestination(preview.filename)
+    if (thumbnail.fileUrl) {
+      const destination = VideoPathManager.Instance.buildTMPDestination(thumbnail.filename)
 
-      await doRequestAndSaveToFile(preview.fileUrl, destination)
+      await doRequestAndSaveToFile(thumbnail.fileUrl, destination)
 
       return { coverPath: destination, isTmpDestination: true }
     }

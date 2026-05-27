@@ -2,156 +2,192 @@
 
  * Chocobozzz
  * Rigel Kent
+ * Hồ Nhất Duy
+ * T.S
+ * Jeff Huang
+ * Milo Ivir
  * DignifiedSilence
  * Александр
- * T.S
  * josé m
- * Hồ Nhất Duy
- * Jeff Huang
+ * fran secs
  * Ihor Hordiichuk
  * Filip Bengtsson
+ * kontrollanten
  * Payman Moghadam
  * Berto Te
- * kontrollanten
- * Milo Ivir
+ * Leif-Jöran Olsson
  * Simon Brosdetzko
  * Jiri Podhorecky
  * Phongpanot
+ * Sveinn í Felli
+ * Tibbe Debats
  * GunChleoc
+ * Hannes Ylä-Jääski
  * hecko
  * Laurent Ettouati
  * kimsible
+ * Besnik Bleta
  * Zet
  * Ewout van Mansom
  * Aitor Salaberria
- * Sveinn í Felli
  * Clemens Schielicke
+ * Jiří Podhorecký
  * Luca Calcaterra
  * Racida S
- * Marcin Mikołajczak
- * Eivind Ødegård
+ * Oliwier Jaszczyszyn
  * Balázs Meskó
- * Tirifto
- * Wicklow
+ * Blood Axe
+ * Marcin Mikołajczak
  * John Livingston
- * Hannes Ylä-Jääski
+ * Wicklow
+ * Eivind Ødegård
+ * Tirifto
  * Kim
- * Besnik Bleta
  * Vodoyo Kamal
+ * Wuzzy
+ * 偶尔来巡山
+ * ButterflyOfFire
  * Armin
  * Fontan 030
+ * Fjuro
  * Mohamad Reza
+ * Ettore Atalan
  * Quentin PAGÈS
  * Kimsible
  * Felix Ableitner
  * Frank Sträter
  * Free coss
+ * dxuser514
+ * Andrea Gavioli
  * Mürteza MERT
+ * Ricardo Simões
  * Gérald Niel
- * ButterflyOfFire
  * Duy
- * Slimane Selyan AMIRI
- * Dingzhong Chen
  * Eric Guichaoua
+ * Renne Rocha
+ * Slimane Selyan AMIRI
+ * Booteille
+ * Dingzhong Chen
+ * Filip Hanes
  * Julien Maulny
- * Mark Van den Borre
- * x
  * Manuel Viens
+ * Mark Van den Borre
+ * alex gabilondo
+ * x
+ * Ignacio Carrera González
  * Jorropo
  * Josh Morel
- * Renne Rocha
+ * Aarón Guillén
  * BO41
- * Ettore Atalan
+ * Ghost of Sparta
+ * Marc Strange
  * vachan
+ * AP
  * Elegant Codes
  * Florian CUNY
  * Francesc
  * mando laress
+ * Ľubomír Šima
  * Артём Котлубай
  * Ricardo Biloti
  * 0que
- * Blood Axe
  * Cedric F
  * Florent
- * Marc Strange
+ * Victor QuQunta
  * lutangar
  * Ch
  * J. Lavoie
+ * Luc Didry
  * YILDIRIM YAPRAK
- * alex gabilondo
+ * Yuri
  * barzofarev2
  * jan Seli
  * 李奕寯
+ * Erik Guldberg
+ * Goudarz Jafari
  * Kempelen
+ * Kerim Demirkaynak
  * Martin Hoefler
  * Porrumentzio
  * Poslovitch
  * Xabi
  * buoyantair
+ * Adrià Martín
  * Alexander Ivanov
  * Balázs Úr
  * Echo Kilo
- * Erik Guldberg
  * Jan Keromnes
- * Jiří Podhorecký
- * Luc Didry
+ * NorbiPeti
  * Siourdakis Thanos
+ * Thomas Citharel
  * knuxify
+ * tray
  * Agron Selimaj
  * Attila F
  * Caroline Chuong
  * David Soh
  * Diazepan Medina
  * Jason Zhou
- * Kerim Demirkaynak
  * Loukas Stamellos
  * Ms Kimsible
- * NorbiPeti
+ * Paolo Mauri
  * Sergey Zigachev
- * Thomas Citharel
  * Txopi
  * Benjamin Bouvier
- * Filip Hanes
+ * Cavernosa
+ * Cirnos
  * Joe Bill
+ * Julien
+ * Jure Repinc
+ * Kachel Kaiser
  * Kemal Oktay Aktoğan
  * Lucas Declercq
+ * Ryan He
  * Sirxy
+ * Viorel-Cătălin Răpițeanu
  * matograine
- * Adrià Martín
  * Ahmed ABERWAG
  * Daniel Santos
  * David Libeau
  * Ewald Arnold
  * Florent F
- * Ignacio Carrera González
+ * Florent Poinsaut
  * Jayme Soares Almeida Cruz
+ * Lety Does Stuff
  * Nassim Bounouas
  * Rafael Fontenelle
  * Thomas Kuntz
  * Tzafrir Cohen
- * Viorel-Cătălin Răpițeanu
  * Vri
+ * jinsoo
  * miro
  * nexi
  * owiox8+1viroxeaziaxw@sharklasers.com
+ * spf
+ * wazakovsky
  * yns bag
  * Anne-Gaelle Moulun
  * Arman
  * Asier Iturralde Sarasola
+ * B
  * BRAINS YUM
  * Belkacem Mohammed
+ * Bob Oob
  * Côme 744
  * Dimitri Gilbert
  * Flavio F. M
- * Florent Poinsaut
  * Frank Chang
  * Green-Star
  * I_Automne
  * Ilia
+ * Leonora
+ * Marek Ľach
  * Micah Elizabeth Scott
+ * Neko Nekowazarashi
  * Pierre-Jean
  * Ret Samys
  * SVNET Libre
+ * StarAtt
  * Tomasz
  * Tony Simoes
  * William Lahti
@@ -160,44 +196,52 @@
  * boris joeson
  * frankstrater
  * mater
- * spf
  * test2a
  * think4web
  * 路过是好事
  * Ajeje Brazorf
+ * Andreas Grupp
  * Andrey
  * Angristan
  * Benjamin Seitz
- * Bob Oob
- * Booteille
  * Cokelat8
  * DontUseGithub
+ * Eder Etxebarria
  * Farooq Karimi Zadeh
  * Frederic Bezies
+ * Gianantonio Pini
  * Iñigo
  * Jim Kats
  * Joan Montané
  * José M
+ * Kenner Figueiredo
  * Kristoffer Grundström
  * LecygneNoir
+ * Liu Zhiyu
  * Lukas
  * MahdiTurki
  * Martijn Dekker
  * Mats Blomdahl
  * Maxime Louet
  * Mildred
+ * Murat Hasdemir
+ * Murat Özalp
  * Nikolay
  * Okhin
+ * Osama
  * Pierre-Alain TORET
  * Serge Victor
  * Théo Le Calvar
  * Ugaitz
+ * Vaclovas Intas
  * Vincent Finance
+ * ar9708
  * aschaap
  * clementbrizard
  * gohoso9454
  * helabasa
  * kaiyou
+ * max
  * roberto marcolin
  * Ahsan Haris Ahmed
  * Alberto Teira
@@ -212,17 +256,18 @@
  * Asr128
  * Aurélien Bertron
  * Axel Viala
+ * Casper Ruttten
+ * Charles-Edouard Gervais
  * Danail Emandiev
  * Daniele Garau
  * Dep Pranata
  * Dirk Kelly
- * Eder Etxebarria
  * Ehsan Gholami
  * Elga Ahmad Prayoga
  * Girish Ramakrishnan
- * Goudarz Jafari
  * Hakim Oubouali
  * Hans Meiser
+ * HugeFrog24
  * Iñigo A
  * Jefferson Hernandez
  * Jelle Besseling
@@ -231,19 +276,24 @@
  * Jurij Podgoršek
  * Kindred La Boneta
  * Kiro
+ * Korren-Kerren
  * Leopere
  * Linus
  * Lionel Caylat
  * Lukas Winkler
  * M Z
  * Manuela Silva
+ * Marian
+ * Marius Monnier
  * Morpheus Tao
  * Mélanie Chauvel
  * Natsuki Tsukishiro
+ * Nico198X
  * Pedro
+ * Pedro hates github.com
  * Petr Balíček
  * Piotr Sikora
- * Ryan He
+ * Shalabh Agarwal
  * Stardream
  * Stefan Keks
  * Tom Wellington
@@ -251,6 +301,7 @@
  * Victor Hampel
  * Waazdakka
  * Winfried Hyronimus
+ * Wu Wei
  * Yohan Boniface
  * am97
  * anotheranonymoususer
@@ -259,11 +310,15 @@
  * h3n3
  * iapellaniz
  * jonathanraes
+ * legiorange
  * numéro6
  * saleh oukiki
+ * Àngel Pérez Beroy
  * Ömer Faruk Çakmak
  * AQR_Rastiq
+ * Abrarul Hasan
  * Al-Hassan Abdel-Raouf
+ * Alberto
  * Alecks Gates
  * Amos Tamam
  * Andrea Monaco
@@ -277,14 +332,20 @@
  * Average Dude
  * BGR2
  * BitTube
+ * Bojidar Marinov
+ * Boo
  * Boo Teille
  * Branislav Pavelka
- * Casper Ruttten
+ * Charlie Lambda
+ * Daniel Renth
  * Dashie
  * David Luís Pereira Pires
  * David Marzal
+ * Denis Dupont
  * Doug Luce
+ * Emv
  * EndoGai
+ * ErikDK
  * Fatih Özsoy
  * FediverseTV
  * Florent Fayolle
@@ -296,51 +357,61 @@
  * HHY
  * Hange
  * Hjalte
- * HugeFrog24
  * Hugo Peixoto
  * HybridGlucose
  * J C Worm
+ * Jakob Meier
  * Jan Ainali
  * Jan Hartig
  * Jan Marsalek
  * Jerguš Fonfer
+ * Jeroen de Wijn
+ * José Daniel Angulo Plata
  * Joël Galeran
+ * Judah Hansen
  * Julien Lemaire
  * Julien Rabier
  * Lucas Teixeira
  * Mamiako Pavel
+ * Marsalis Weatherspoon
  * Masood Masaeli
  * Millicent Billette
  * Mondo Xíbaro
  * Moritz Warning
  * Mostafa Ahangarha
- * Murat Özalp
- * Neko Nekowazarashi
  * Nicolai Larsen
  * Nojus
  * Olivier Bouillet
+ * Pep
  * Pierre Jaury
  * Piotr Strębski
  * Puryx
+ * Qontinuum
  * Quentin
  * ROBERT MCDOWELL
  * Ronan
  * SerCom_KC
  * Skid
  * Stakovicz
+ * Suthep
+ * Sébastien NOBILI
  * Takeshi Umeda
  * Thai Localization
  * The Cashew Trader
  * Thijs Kinkhorst
  * Timur Seber
  * Toso Malero
+ * Tsuki
+ * Túlio Simões Martins Padilha
  * Valvin
+ * XblateX
  * Yaron Shahrabani
  * YiDai
  * Yogesh K S
  * ahmadsharifian
  * bopol
  * brucekomike
+ * darek
  * dingycle
  * framail
  * imgradeone Yan
@@ -348,13 +419,15 @@
  * les
  * libertas
  * merty
+ * ou jian bo
+ * pawka
  * plr20
+ * q0ntinuum
  * q_h
  * qwerty
  * taziden
  * vancha march
  * victor héry
- * Àngel Pérez Beroy
  * 3risian
  * A.D.R.S
  * Acid Chicken (硫酸鶏)
@@ -368,14 +441,20 @@
  * Alberto Mardegan
  * Alejandro Criado-Pérez
  * Aleksandr Sokolov
+ * Alessandro Molina
  * Alexander F. Rødseth
+ * Alexey Cluster
  * Ali Alim
  * Alperen Abak
  * Alvar C.H. Freude
  * Aman Sharma
+ * Ambrine
  * Anatoly
  * Anatoly Bogomolov
  * Andrews Góes Santos
+ * André Granzow
+ * Ankit lal
+ * Anna Filina
  * Antoine Millet
  * Anton Latukha
  * Apps
@@ -388,28 +467,30 @@
  * Ben Lubar
  * Benjamin EWFT
  * Benoît Piédallu
- * Boo
  * Brad Johnson
  * Cadence Ember
  * Cale
  * Carlos García Gutiérrez
  * Charles de Lacombe
- * Charlie Lambda
  * Christoph Geschwind
  * Chronos
- * Cirnos
  * Claude
  * Clifford Garwood II
  * Clément Brizard
+ * Codimp
+ * Cédric Bahirwe
  * DLP
  * Daniel Dutra
+ * Daniel Viñar Ulriksen
  * David Baumgold
  * David Dobryakov
  * DeeJayBro
+ * DeepL
  * Deval
  * Dimitri DI GUSTO
  * Dimitrios Glentadakis
  * Durgaraj Karki
+ * E
  * Edouard SCHWEISGUTH
  * Edwin Alberto Amado Baron
  * Emmanuel Pret
@@ -418,11 +499,14 @@
  * Erwan Croze
  * Esmail_Hazem
  * Ethan Corgatelli
+ * FB
  * Fabio Agreles Bezerra
+ * Fabián León
  * FediThing
  * Fernandez, ReK2
  * Framasoft
  * Gabriel Scherer
+ * George
  * Gergo Bogdan
  * Glandos
  * Grant
@@ -430,9 +514,13 @@
  * Guillaume Pérution-Kihli
  * Gérald CHATAGNON
  * Haelwenn (lanodan) Monnier
+ * Hannes Mehnert
+ * Hasan Yıldız
  * Henri BAUDESSON
  * HesioZ
+ * Himani Sharma
  * Hozan Şahin
+ * Hydrolien
  * ICabaleiro
  * Iker Garaialde
  * Ismaël Bouya
@@ -440,6 +528,7 @@
  * Iván Cabaleiro
  * J Webb
  * Jacen
+ * Jackson
  * Jackson Chen
  * Jacob
  * Jacques Foucry
@@ -453,52 +542,63 @@
  * Jeston Tan
  * Jinn Koriech
  * Jlll1
+ * Joe Silber
+ * Johan van Dongen
  * Johnny Jazeix
  * Jonas Sulzer
  * Jonatan Nyberg
  * Jonathan Weth
  * Jorge Silva
  * Jos
+ * José Silva
  * Julien Le Bras
  * Juraj Liso
  * JustAnotherArchivist
  * Kent Anderson
  * Kevin Cope
  * Kevin Pliester
+ * Khyvodul
  * Knackie
  * Kody
  * Konstantinos Agiannis
  * Kyâne Pichou
  * Leo Mouyna
  * Lesterpig
- * Lety Does Stuff
  * Levi Bard
  * LiPeK
  * Lint
  * LoveIsGrief
  * Luca B
+ * Lucian I. Last
  * Lucien A
  * Lupinard
+ * Léane GRASSER
  * Léo Andrès
  * ManMade-cube42
  * Marcel Fuhrmann
  * Marco Zehe
+ * Marcus Schwarz
  * Marian Steinbach
  * Mario Pepe
  * Markus Richter
+ * Markus Schlichting
  * Martin Trigaux
  * Matej Šujan
  * Mateusz Piotrowski
  * Mathieu Agopian
  * Mathieu Brunot
+ * Matthias Frey
  * Matthieu De Beule
  * Max Rosenfors
  * Michael Koppmann
  * Michael Williams
+ * Midgard
  * Miguel Mayol Tur
+ * Miguel P.L
  * Mike
  * Mikel Gartzia Santamaria
  * Milo van der Linden
+ * Moby Mikes 💻
  * MrGiga
  * Mélanie Pin
  * Nataly Rocha
@@ -513,7 +613,7 @@
  * Pablo Joubert
  * Paul FLORENCE
  * Paul V
- * Pedro hates github.com
+ * Pavel 7 Tomsk
  * PhieF
  * Philip Durbin
  * Philipp Fischbeck
@@ -521,16 +621,20 @@
  * Predatorix Phoenix
  * Quantic Axe
  * Quentin Dupont
+ * Quentin THEURET
  * Quentí
+ * RF9A5V
  * ROPEDE
  * Ramazan Geven
  * Ramiellll
+ * Rangel Prodanov
  * Raphael
  * Raphaël Droz
  * Ray
  * Rebecca
  * Rech
  * Rep Dolsay
+ * RiQuY
  * Robert Riemann
  * Roberto Resoli
  * Robin
@@ -546,9 +650,12 @@
  * Shun Sakai
  * Simon Gilliot
  * Simounet
+ * Snue
  * Stefan Schüller
  * Steffen
  * Steffen Möller
+ * Steven Dickinson
+ * Subh B
  * Sumit Khanna
  * SupC
  * TA
@@ -562,7 +669,6 @@
  * Tomás Sebastián Romero
  * TrashMacNugget
  * Treacle
- * Tsuki
  * Unetelle Inconnue
  * Vagelis F
  * Varik Valefor
@@ -570,37 +676,46 @@
  * VeryREAL
  * Vik
  * Vincent Stakenburg
+ * Weblate
  * WhiredPlanck
  * William Cliff
  * WingsLikeEagles
  * Yann Sionneau
  * Yehuda Deutsch
+ * Yelena Bonny
  * Yorwba
  * Yun
+ * Zack Birkenbuel
  * Zekovski
  * Zig-03
  * [ Bie ] Watcharapong Suriyawan
  * adam iter
+ * alexma233
+ * allmiha2
+ * aloxe
  * anmol26s
  * april
- * ar9708
  * augier
  * big gamer
  * bikepunk
  * bsky
+ * ceasermikes002
  * chagai95
  * ctlaltdefeat
  * decentral1se
+ * djblu2003dk-tech
  * eduard pintilie
  * framabr
  * fuomag9
  * gillux
+ * ilfarpro
  * jameskimmel
  * jinubook
  * jomo
+ * josé m.
+ * kiro-dev28
  * kukhariev
  * lambdacastix
- * legiorange
  * libertysoft3
  * lost_geographer
  * lsde
@@ -621,23 +736,30 @@
  * osauzet
  * paring
  * paulienm
+ * peppe namir
  * philippe lhardy
  * pitchum
  * potedeo
  * rdxuan
  * retiolus
+ * rosbeef andino
  * ruvilonix
  * sanchis
+ * sasek
+ * skyone-wzw
  * slendermon
  * smilekison
  * sn0wygecko
  * soonsouth
+ * spirillen
  * thecashewtrader
  * tilllt
+ * tmpod
  * tomamplius
  * toobad
  * treac1e
  * tuxayo
+ * ukuk
  * victor-long
  * xcffl
  * zacharystenger
@@ -646,6 +768,8 @@
  * Артур Кирпо
  * Дмитрий Кузнецов
  * ‮noisawe
+ * 姚霁恒
+ * 諏訪子
  * abdhessuk
  * abidin24
  * aditoo

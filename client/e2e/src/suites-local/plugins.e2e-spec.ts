@@ -1,7 +1,7 @@
 import { AdminPluginPage } from '../po/admin-plugin.po'
 import { LoginPage } from '../po/login.po'
 import { VideoPublishPage } from '../po/video-publish.po'
-import { getCheckbox, getScreenshotPath, isMobileDevice, waitServerUp } from '../utils'
+import { getCheckbox, isMobileDevice, prepareWebBrowser, waitServerUp } from '../utils'
 
 describe('Plugins', () => {
   let videoPublishPage: VideoPublishPage
@@ -28,7 +28,7 @@ describe('Plugins', () => {
     videoPublishPage = new VideoPublishPage()
     adminPluginPage = new AdminPluginPage()
 
-    await browser.maximizeWindow()
+    await prepareWebBrowser()
   })
 
   it('Should install hello world plugin', async () => {
@@ -82,9 +82,5 @@ describe('Plugins', () => {
     await videoPublishPage.setAsPrivate()
 
     await expectSubmitError(false)
-  })
-
-  after(async () => {
-    await browser.saveScreenshot(getScreenshotPath('after-test.png'))
   })
 })

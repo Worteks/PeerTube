@@ -1,27 +1,30 @@
-import { Transaction } from 'sequelize'
 import { LiveVideoError, UserAdminFlag, UserRight, VideoBlacklistCreate, VideoBlacklistType } from '@peertube/peertube-models'
 import { afterCommitIfTransaction } from '@server/helpers/database-utils.js'
+import { englishLanguage, t } from '@server/helpers/i18n.js'
 import { sequelizeTypescript } from '@server/initializers/database.js'
+import { VideoModel } from '@server/models/video/video.js'
 import {
   MUser,
   MVideoAccountLight,
   MVideoBlacklist,
   MVideoBlacklistVideo,
-  MVideoFullLight,
-  MVideoWithBlacklistLight
+  MVideoWithBlacklistLight,
+  MVideoWithRights,
+  MVideoWithSchedule
 } from '@server/types/models/index.js'
+import { Transaction } from 'sequelize'
 import { logger, loggerTagsFactory } from '../helpers/logger.js'
 import { CONFIG } from '../initializers/config.js'
 import { VideoBlacklistModel } from '../models/video/video-blacklist.js'
 import { sendDeleteVideo } from './activitypub/send/index.js'
-import { federateVideoIfNeeded } from './activitypub/videos/index.js'
+import { federateVideoIfNeeded, isPrivacyForFederation } from './activitypub/videos/index.js'
 import { LiveManager } from './live/live-manager.js'
 import { Notifier } from './notifier/index.js'
 import { Hooks } from './plugins/hooks.js'
 
 const lTags = loggerTagsFactory('blacklist')
 
-async function autoBlacklistVideoIfNeeded (parameters: {
+export async function autoBlacklistVideoIfNeeded (parameters: {
   video: MVideoWithBlacklistLight
   user?: MUser
   isRemote: boolean
@@ -42,7 +45,7 @@ async function autoBlacklistVideoIfNeeded (parameters: {
   const videoBlacklistToCreate = {
     videoId: video.id,
     unfederated: true,
-    reason: 'Auto-blacklisted. Moderator review required.',
+    reason: t('The video has been automatically blocked. A moderator review is required.', user?.getLanguage() ?? englishLanguage),
     type: VideoBlacklistType.AUTO_BEFORE_PUBLISHED
   }
   const [ videoBlacklist ] = await VideoBlacklistModel.findOrCreate<MVideoBlacklistVideo>({
@@ -67,7 +70,7 @@ async function autoBlacklistVideoIfNeeded (parameters: {
   return true
 }
 
-async function blacklistVideo (videoInstance: MVideoAccountLight, options: VideoBlacklistCreate) {
+export async function blacklistVideo (videoInstance: MVideoAccountLight, options: VideoBlacklistCreate) {
   const blacklist: MVideoBlacklistVideo = await VideoBlacklistModel.create({
     videoId: videoInstance.id,
     unfederated: options.unfederate === true,
@@ -76,8 +79,8 @@ async function blacklistVideo (videoInstance: MVideoAccountLight, options: Video
   })
   blacklist.Video = videoInstance
 
-  if (options.unfederate === true) {
-    await sendDeleteVideo(videoInstance, undefined)
+  if (options.unfederate === true && videoInstance.isLocal() && isPrivacyForFederation(videoInstance.privacy)) {
+    await sendDeleteVideo({ video: videoInstance, transaction: undefined })
   }
 
   if (videoInstance.isLive) {
@@ -87,7 +90,7 @@ async function blacklistVideo (videoInstance: MVideoAccountLight, options: Video
   Notifier.Instance.notifyOnVideoBlacklist(blacklist)
 }
 
-async function unblacklistVideo (videoBlacklist: MVideoBlacklist, video: MVideoFullLight) {
+export async function unblacklistVideo (videoBlacklist: MVideoBlacklist, video: MVideoWithRights) {
   const videoBlacklistType = await sequelizeTypescript.transaction(async t => {
     const unfederated = videoBlacklist.unfederated
     const videoBlacklistType = videoBlacklist.type
@@ -97,7 +100,7 @@ async function unblacklistVideo (videoBlacklist: MVideoBlacklist, video: MVideoF
 
     // Re federate the video
     if (unfederated === true) {
-      await federateVideoIfNeeded(video, true, t)
+      await federateVideoIfNeeded(await VideoModel.loadFull(video.id, t), true, t)
     }
 
     return videoBlacklistType
@@ -106,22 +109,19 @@ async function unblacklistVideo (videoBlacklist: MVideoBlacklist, video: MVideoF
   Notifier.Instance.notifyOnVideoUnblacklist(video)
 
   if (videoBlacklistType === VideoBlacklistType.AUTO_BEFORE_PUBLISHED) {
-    Notifier.Instance.notifyOnVideoPublishedAfterRemovedFromAutoBlacklist(video)
+    const videoWithSchedule = video as MVideoWithRights & MVideoWithSchedule
+    videoWithSchedule.ScheduleVideoUpdate = await videoWithSchedule.$get('ScheduleVideoUpdate')
+
+    Notifier.Instance.notifyOnVideoPublishedAfterRemovedFromAutoBlacklist(videoWithSchedule)
 
     // Delete on object so new video notifications will send
     delete video.VideoBlacklist
-    Notifier.Instance.notifyOnNewVideoOrLiveIfNeeded(video)
+    Notifier.Instance.notifyOnNewVideoOrLiveIfNeeded(videoWithSchedule)
   }
 }
 
 // ---------------------------------------------------------------------------
-
-export {
-  autoBlacklistVideoIfNeeded,
-  blacklistVideo,
-  unblacklistVideo
-}
-
+// Private
 // ---------------------------------------------------------------------------
 
 function autoBlacklistNeeded (parameters: {

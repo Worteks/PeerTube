@@ -51,11 +51,11 @@ async function processVideoShare (actorAnnouncer: MActorSignature, activity: Act
       transaction: t
     })
 
-    if (video.isOwned() && created === true) {
+    if (video.isLocal() && created === true) {
       // Don't resend the activity to the sender
       const exceptions = [ actorAnnouncer ]
 
-      await forwardVideoRelatedActivity(activity, t, exceptions, video)
+      await forwardVideoRelatedActivity({ activity, transaction: t, followersException: exceptions, video, parallelizable: false })
     }
 
     return undefined

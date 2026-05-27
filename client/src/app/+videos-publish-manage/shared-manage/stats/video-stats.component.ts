@@ -1,12 +1,12 @@
-import { NgFor, NgIf } from '@angular/common'
+import { CommonModule } from '@angular/common'
 import { Component, LOCALE_ID, OnInit, inject } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { ActivatedRoute } from '@angular/router'
-import { Notifier, PeerTubeRouterService } from '@app/core'
+import { Notifier, PeerTubeRouterService, ServerService } from '@app/core'
 import { GlobalIconComponent } from '@app/shared/shared-icons/global-icon.component'
 import { NumberFormatterPipe } from '@app/shared/shared-main/common/number-formatter.pipe'
 import { LiveVideoService } from '@app/shared/shared-video-live/live-video.service'
-import { NgbNav, NgbNavContent, NgbNavItem, NgbNavLink, NgbNavLinkBase, NgbNavOutlet } from '@ng-bootstrap/ng-bootstrap'
+import { NgbNavModule } from '@ng-bootstrap/ng-bootstrap'
 import { secondsToTime } from '@peertube/peertube-core-utils'
 import {
   HttpStatusCode,
@@ -21,7 +21,7 @@ import { ChartConfiguration, ChartData, defaults as ChartJSDefaults, ChartOption
 import zoomPlugin from 'chartjs-plugin-zoom'
 import { ChartModule } from 'primeng/chart'
 import { Observable, of } from 'rxjs'
-import { SelectOptionsItem } from 'src/types'
+import { SelectOptionsItem } from '@pt-types'
 import { SelectOptionsComponent } from '../../../shared/shared-forms/select/select-options.component'
 import { ButtonComponent } from '../../../shared/shared-main/buttons/button.component'
 import { HelpComponent } from '../../../shared/shared-main/buttons/help.component'
@@ -37,6 +37,19 @@ type ActiveGraphId = VideoStatsTimeserieMetric | 'retention' | BarGraphs
 type GeoData = { name: string, viewers: number }[]
 
 type ChartIngestData = VideoStatsTimeserie | VideoStatsRetention | GeoData | VideoStatsUserAgent
+
+type GraphDataById = {
+  clients: VideoStatsUserAgent
+  devices: VideoStatsUserAgent
+  operatingSystems: VideoStatsUserAgent
+  retention: VideoStatsRetention
+  aggregateWatchTime: VideoStatsTimeserie
+  viewers: VideoStatsTimeserie
+  downloads: VideoStatsTimeserie
+  countries: GeoData
+  regions: GeoData
+}
+
 type ChartBuilderResult = {
   type: 'line' | 'bar'
 
@@ -51,9 +64,9 @@ type Card = { label: string, value: string | number, moreInfo?: string, help?: s
 
 const isBarGraph = (graphId: ActiveGraphId): graphId is BarGraphs => BAR_GRAPHS.some(graph => graph === graphId)
 
-ChartJSDefaults.backgroundColor = getComputedStyle(document.body).getPropertyValue('--bg')
-ChartJSDefaults.borderColor = getComputedStyle(document.body).getPropertyValue('--bg-secondary-500')
-ChartJSDefaults.color = getComputedStyle(document.body).getPropertyValue('--fg')
+ChartJSDefaults.backgroundColor = getComputedStyle(document.documentElement).getPropertyValue('--bg')
+ChartJSDefaults.borderColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary-500')
+ChartJSDefaults.color = getComputedStyle(document.documentElement).getPropertyValue('--fg')
 
 @Component({
   templateUrl: './video-stats.component.html',
@@ -63,20 +76,14 @@ ChartJSDefaults.color = getComputedStyle(document.body).getPropertyValue('--fg')
   ],
   providers: [ NumberFormatterPipe ],
   imports: [
-    NgFor,
-    NgIf,
+    CommonModule,
     HelpComponent,
     EmbedComponent,
     SelectOptionsComponent,
     FormsModule,
-    NgbNav,
-    NgbNavItem,
-    NgbNavLink,
-    NgbNavLinkBase,
-    NgbNavContent,
+    NgbNavModule,
     ChartModule,
     ButtonComponent,
-    NgbNavOutlet,
     GlobalIconComponent
   ]
 })
@@ -89,6 +96,7 @@ export class VideoStatsComponent implements OnInit {
   private numberFormatter = inject(NumberFormatterPipe)
   private liveService = inject(LiveVideoService)
   private manageController = inject(VideoManageController)
+  private serverService = inject(ServerService)
 
   // Cannot handle date filters
   globalStatsCards: Card[] = []
@@ -134,6 +142,11 @@ export class VideoStatsComponent implements OnInit {
       {
         id: 'aggregateWatchTime',
         label: $localize`Watch time`,
+        zoomEnabled: true
+      },
+      {
+        id: 'downloads',
+        label: $localize`Downloads`,
         zoomEnabled: true
       },
       {
@@ -185,6 +198,10 @@ export class VideoStatsComponent implements OnInit {
         ? new Date(params.endDate)
         : undefined
 
+      if (!this.statsStartDate && !this.statsEndDate) {
+        this.currentDateFilter = 'all'
+      }
+
       this.loadChart()
       this.loadOverallStats()
     })
@@ -204,9 +221,9 @@ export class VideoStatsComponent implements OnInit {
     this.activeGraphId = newActive
 
     if (newActive === 'countries') {
-      this.chartHeight = `${Math.max(this.countries.length * 20, 300)}px`
+      this.chartHeight = `${Math.max(this.countries.length * 25, 300)}px`
     } else if (newActive === 'regions') {
-      this.chartHeight = `${Math.max(this.regions.length * 20, 300)}px`
+      this.chartHeight = `${Math.max(this.regions.length * 25, 300)}px`
     } else {
       this.chartHeight = '300px'
     }
@@ -243,7 +260,7 @@ export class VideoStatsComponent implements OnInit {
   }
 
   private isTimeserieGraph (graphId: ActiveGraphId) {
-    return graphId === 'aggregateWatchTime' || graphId === 'viewers'
+    return graphId === 'aggregateWatchTime' || graphId === 'viewers' || graphId === 'downloads'
   }
 
   private loadOverallStats () {
@@ -262,7 +279,7 @@ export class VideoStatsComponent implements OnInit {
           this.buildOverallStatCard(res)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -281,7 +298,7 @@ export class VideoStatsComponent implements OnInit {
           this.dateFilters = this.dateFilters.concat(newFilters)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -295,7 +312,7 @@ export class VideoStatsComponent implements OnInit {
         error: err => {
           if (err.status === HttpStatusCode.NOT_FOUND_404) return
 
-          this.notifier.error(err.message)
+          this.notifier.handleError(err)
         }
       })
   }
@@ -334,6 +351,10 @@ export class VideoStatsComponent implements OnInit {
         label: $localize`Views`,
         value: this.numberFormatter.transform(this.videoEdit.getVideoAttributes().views),
         help: $localize`A view means that someone watched the video for several seconds (10 seconds by default)`
+      },
+      {
+        label: $localize`Downloads`,
+        value: this.numberFormatter.transform(this.videoEdit.getVideoAttributes().downloads)
       },
       {
         label: $localize`Likes`,
@@ -400,6 +421,12 @@ export class VideoStatsComponent implements OnInit {
         endDate: this.statsEndDate,
         metric: 'viewers'
       }),
+      downloads: this.statsService.getTimeserieStats({
+        videoId,
+        startDate: this.statsStartDate,
+        endDate: this.statsEndDate,
+        metric: 'downloads'
+      }),
 
       countries: of(this.countries),
 
@@ -413,25 +440,25 @@ export class VideoStatsComponent implements OnInit {
         this.chartOptions[this.activeGraphId] = this.buildChartOptions(this.activeGraphId)
       },
 
-      error: err => this.notifier.error(err.message)
+      error: err => this.notifier.handleError(err)
     })
   }
 
-  private buildChartOptions (graphId: ActiveGraphId): ChartConfiguration<'line' | 'bar'> {
-    const dataBuilders: {
-      [id in ActiveGraphId]: (rawData: ChartIngestData) => ChartBuilderResult
-    } = {
+  private buildChartOptions<K extends ActiveGraphId> (graphId: K): ChartConfiguration<'line' | 'bar'> {
+    const dataBuilders: { [P in ActiveGraphId]: (rawData: GraphDataById[P]) => ChartBuilderResult } = {
       clients: (rawData: VideoStatsUserAgent) => this.buildUserAgentChartOptions(rawData, 'clients'),
       devices: (rawData: VideoStatsUserAgent) => this.buildUserAgentChartOptions(rawData, 'devices'),
       operatingSystems: (rawData: VideoStatsUserAgent) => this.buildUserAgentChartOptions(rawData, 'operatingSystems'),
       retention: (rawData: VideoStatsRetention) => this.buildRetentionChartOptions(rawData),
       aggregateWatchTime: (rawData: VideoStatsTimeserie) => this.buildTimeserieChartOptions(rawData),
       viewers: (rawData: VideoStatsTimeserie) => this.buildTimeserieChartOptions(rawData),
+      downloads: (rawData: VideoStatsTimeserie) => this.buildTimeserieChartOptions(rawData),
       countries: (rawData: GeoData) => this.buildGeoChartOptions(rawData),
       regions: (rawData: GeoData) => this.buildGeoChartOptions(rawData)
     }
 
-    const { type, data, displayLegend, plugins, options } = dataBuilders[graphId](this.chartIngestData[graphId])
+    const rawData = this.chartIngestData[graphId] as GraphDataById[K]
+    const { type, data, displayLegend, plugins, options } = dataBuilders[graphId](rawData)
 
     const self = this
 
@@ -501,7 +528,7 @@ export class VideoStatsComponent implements OnInit {
     }
 
     return {
-      type: 'line' as 'line',
+      type: 'line',
 
       displayLegend: false,
 
@@ -531,7 +558,7 @@ export class VideoStatsComponent implements OnInit {
     }
 
     return {
-      type: 'line' as 'line',
+      type: 'line',
 
       displayLegend: false,
 
@@ -591,7 +618,7 @@ export class VideoStatsComponent implements OnInit {
     }
 
     return {
-      type: 'bar' as 'bar',
+      type: 'bar',
 
       options: {
         indexAxis: 'y'
@@ -627,7 +654,7 @@ export class VideoStatsComponent implements OnInit {
     }
 
     return {
-      type: 'bar' as 'bar',
+      type: 'bar',
 
       options: {
         indexAxis: 'y'
@@ -654,7 +681,7 @@ export class VideoStatsComponent implements OnInit {
   }
 
   private buildChartColor () {
-    return getComputedStyle(document.body).getPropertyValue('--border-primary')
+    return getComputedStyle(document.documentElement).getPropertyValue('--border-primary')
   }
 
   private formatXTick (options: {
@@ -752,5 +779,19 @@ export class VideoStatsComponent implements OnInit {
       minute: 'numeric',
       second: 'numeric'
     })
+  }
+
+  // ---------------------------------------------------------------------------
+
+  hasMaxViewsAge () {
+    return this.getMaxViewsAge() !== -1
+  }
+
+  getMaxViewsAgeDate () {
+    return new Date(Date.now() - this.getMaxViewsAge())
+  }
+
+  private getMaxViewsAge () {
+    return this.serverService.getHTMLConfig().views.videos.local.maxAge
   }
 }

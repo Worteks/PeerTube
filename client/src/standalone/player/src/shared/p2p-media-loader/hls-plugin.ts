@@ -1,12 +1,14 @@
 // Thanks https://github.com/streamroot/videojs-hlsjs-plugin
 // We duplicated this plugin to choose the hls.js version we want, because streamroot only provide a bundled file
 
+import { omit } from '@peertube/peertube-core-utils'
 import { logger } from '@root-helpers/logger'
 import Hlsjs, { ErrorData, Level, LevelSwitchingData, ManifestParsedData } from 'hls.js'
-import videojs from 'video.js'
-import { HLSPluginOptions, HlsjsConfigHandlerOptions, PeerTubeResolution, VideoJSTechHLS } from '../../types'
 import { HlsJsP2PEngine, HlsWithP2PInstance } from 'p2p-media-loader-hlsjs'
-import { omit } from '@peertube/peertube-core-utils'
+import videojs from 'video.js'
+import Tech, { SourceObject } from 'video.js/dist/types/tech/tech'
+import { getStoredPreferredResolution } from '../../peertube-player-local-storage'
+import { HLSPluginOptions, HlsjsConfigHandlerOptions, PeerTubeResolution, VideoJSTechHLS, VideojsPlayer, VideojsPlugin } from '../../types'
 
 const HlsWithP2P = HlsJsP2PEngine.injectMixin(Hlsjs)
 
@@ -37,7 +39,7 @@ const registerSourceHandler = function (vjs: typeof videojs) {
 
   alreadyRegistered = true // FIXME: typings
   ;(html5 as any).registerSourceHandler({
-    canHandleSource: function (source: videojs.Tech.SourceObject) {
+    canHandleSource: function (source: SourceObject) {
       const hlsTypeRE = /^application\/x-mpegURL|application\/vnd\.apple\.mpegurl$/i
       const hlsExtRE = /\.m3u8/i
 
@@ -47,7 +49,7 @@ const registerSourceHandler = function (vjs: typeof videojs) {
       return ''
     },
 
-    handleSource: function (source: videojs.Tech.SourceObject, tech: VideoJSTechHLS) {
+    handleSource: function (source: SourceObject, tech: VideoJSTechHLS) {
       if (tech.hlsProvider) {
         tech.hlsProvider.dispose()
       }
@@ -64,11 +66,11 @@ const registerSourceHandler = function (vjs: typeof videojs) {
 // HLS options plugin
 // ---------------------------------------------------------------------------
 
-const Plugin = videojs.getPlugin('plugin')
+const Plugin = videojs.getPlugin('plugin') as typeof VideojsPlugin
 
 class HLSJSConfigHandler extends Plugin {
-  constructor (player: videojs.Player, options: HlsjsConfigHandlerOptions) {
-    super(player, options)
+  constructor (player: VideojsPlayer, options: HlsjsConfigHandlerOptions) {
+    super(player)
 
     if (!options) return
 
@@ -109,9 +111,9 @@ videojs.registerPlugin('hlsjs', HLSJSConfigHandler)
 export class Html5Hlsjs {
   private readonly videoElement: HTMLVideoElement
   private readonly errorCounts: ErrorCounts = {}
-  private readonly player: videojs.Player
-  private readonly tech: videojs.Tech
-  private readonly source: videojs.Tech.SourceObject
+  private readonly player: VideojsPlayer
+  private readonly tech: Tech
+  private readonly source: SourceObject
   private readonly vjs: typeof videojs
 
   private maxNetworkErrorRecovery = 5
@@ -121,6 +123,7 @@ export class Html5Hlsjs {
 
   private _duration: number = null
   private metadata: ManifestParsedData = null
+
   private isLive: boolean = null
   private dvrDuration: number = null
   private edgeMargin: number = null
@@ -134,7 +137,7 @@ export class Html5Hlsjs {
 
   private audioMode = false
 
-  constructor (vjs: typeof videojs, source: videojs.Tech.SourceObject, tech: videojs.Tech) {
+  constructor (vjs: typeof videojs, source: SourceObject, tech: Tech) {
     this.vjs = vjs
     this.source = source
 
@@ -142,7 +145,7 @@ export class Html5Hlsjs {
     ;(this.tech as any).name_ = 'Hlsjs'
 
     this.videoElement = tech.el() as HTMLVideoElement
-    this.player = vjs((tech.options_ as any).playerId)
+    this.player = vjs(tech.options_.playerId) as VideojsPlayer
 
     this.handlers.error = event => {
       let errorTxt: string
@@ -182,23 +185,23 @@ export class Html5Hlsjs {
     if (this._duration === Infinity) return Infinity
     if (!isNaN(this.videoElement.duration)) return this.videoElement.duration
 
-    return this._duration || 0
+    return this._duration || this.hlsjsConfig.durationPlaceholder || 0
   }
 
   seekable () {
     if (this.hls.media) {
       if (!this.isLive) {
-        return this.vjs.createTimeRanges(0, this.hls.media.duration)
+        return this.vjs.time.createTimeRanges(0, this.hls.media.duration)
       }
 
       // Video.js doesn't seem to like floating point timeranges
       const startTime = Math.round(this.hls.media.duration - this.dvrDuration)
       const endTime = Math.round(this.hls.media.duration - this.edgeMargin)
 
-      return this.vjs.createTimeRanges(startTime, endTime)
+      return this.vjs.time.createTimeRanges(startTime, endTime)
     }
 
-    return this.vjs.createTimeRanges()
+    return this.vjs.time.createTimeRanges(0, undefined)
   }
 
   dispose () {
@@ -349,6 +352,7 @@ export class Html5Hlsjs {
 
       resolutions.push({
         id: -2, // -1 is for "Auto quality"
+        height: 0,
         label: this.player.localize('Audio only'),
         selected: false,
         selectCallback: () => {
@@ -368,6 +372,30 @@ export class Html5Hlsjs {
     })
 
     this.player.peertubeResolutions().add(resolutions)
+
+    const preferredResolution = this.pickPreferredResolution(resolutions)
+    if (preferredResolution) {
+      this.player.peertubeResolutions().select({ id: preferredResolution.id, fireCallback: true })
+    }
+  }
+
+  private pickPreferredResolution (resolutions: PeerTubeResolution[]) {
+    const preferredHeight = getStoredPreferredResolution()
+    if (preferredHeight === undefined) return undefined
+
+    const selectableResolutions = resolutions
+      .filter(r => r.id !== -1 && r.height !== undefined)
+      .sort((a, b) => a.height - b.height)
+
+    if (selectableResolutions.length === 0) return undefined
+
+    const exactMatch = selectableResolutions.find(r => r.height === preferredHeight)
+    if (exactMatch) return exactMatch
+
+    const nearestAbove = selectableResolutions.find(r => r.height >= preferredHeight)
+    if (nearestAbove) return nearestAbove
+
+    return selectableResolutions[selectableResolutions.length - 1]
   }
 
   private manuallySelectVideoLevel (index: number) {
@@ -381,7 +409,7 @@ export class Html5Hlsjs {
   }
 
   private _startLoad () {
-    this.hls.startLoad(-1)
+    this.hls.startLoad(this.hlsjsConfig.startPosition || -1)
     this.videoElement.removeEventListener('play', this.handlers.play)
   }
 
@@ -435,7 +463,9 @@ export class Html5Hlsjs {
       this.isLive = data.details.live
       this.dvrDuration = data.details.totalduration
 
-      this._duration = this.isLive ? Infinity : data.details.totalduration
+      this._duration = this.isLive
+        ? Infinity
+        : data.details.totalduration
 
       // Increase network error recovery for lives since they can be broken (server restart, stream interruption etc)
       if (this.isLive) this.maxNetworkErrorRecovery = 30

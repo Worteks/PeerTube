@@ -82,30 +82,13 @@ export class VideoWatchPage {
     return $('.modal-content .modal-footer .primary-button').click()
   }
 
-  private async getVideoNameElement () {
-    // We have 2 video info name block, pick the first that is not empty
-    const elem = async () => {
-      const elems = await $$('.video-info-first-row .video-info-name').filter(e => e.isDisplayed())
-
-      return elems[0]
-    }
-
-    await browser.waitUntil(async () => {
-      const e = await elem()
-
-      return e?.isDisplayed()
-    })
-
-    return elem()
+  private getVideoNameElement () {
+    return $('.video-info-first-row .video-info-name')
   }
 
   // ---------------------------------------------------------------------------
   // Video password
   // ---------------------------------------------------------------------------
-
-  isPasswordProtected () {
-    return $('#confirmInput').isExisting()
-  }
 
   async fillVideoPassword (videoPassword: string) {
     const videoPasswordInput = $('input#confirmInput')
@@ -151,10 +134,7 @@ export class VideoWatchPage {
     await this.clickOnMoreDropdownIcon()
 
     // We need the await expression
-    // eslint-disable-next-line @typescript-eslint/await-thenable
-    const items = await $$('.dropdown-menu.show .dropdown-item')
-
-    for (const item of items) {
+    return $$('.dropdown-menu.show .dropdown-item').forEach(async item => {
       const content = await item.getText()
 
       if (content.includes('Manage')) {
@@ -162,11 +142,12 @@ export class VideoWatchPage {
         await $('#name').waitForClickable()
         return
       }
-    }
+    })
   }
 
   async clickOnMoreDropdownIcon () {
     const dropdown = $('my-video-actions-dropdown .action-button')
+    await dropdown.scrollIntoView({ block: 'center' })
     await dropdown.click()
 
     await $('.dropdown-menu.show .dropdown-item').waitForDisplayed()
@@ -176,8 +157,12 @@ export class VideoWatchPage {
   // Playlists
   // ---------------------------------------------------------------------------
 
-  clickOnSave () {
-    return $('.action-button-save').click()
+  async clickOnSave () {
+    const button = $('.action-button-save')
+
+    await button.scrollIntoView({ block: 'center' })
+
+    return button.click()
   }
 
   async createPlaylist (name: string) {

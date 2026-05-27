@@ -1,9 +1,8 @@
-import { NgFor, NgIf } from '@angular/common'
-import { Component, OnInit, inject } from '@angular/core'
+import { Component, inject, OnInit } from '@angular/core'
 import { ActivatedRoute, Router } from '@angular/router'
-import { PluginApiService } from '@app/+admin/plugins/shared/plugin-api.service'
 import { ComponentPagination, ConfirmService, hasMoreItems, Notifier, resetCurrentPage, updatePaginationOnDelete } from '@app/core'
 import { PluginService } from '@app/core/plugins/plugin.service'
+import { PluginApiService } from '@app/shared/shared-admin/plugin-api.service'
 import { compareSemVer } from '@peertube/peertube-core-utils'
 import { PeerTubePlugin, PluginType, PluginType_Type } from '@peertube/peertube-models'
 import { Subject } from 'rxjs'
@@ -17,9 +16,7 @@ import { PluginCardComponent } from '../shared/plugin-card.component'
   templateUrl: './plugin-list-installed.component.html',
   styleUrls: [ './plugin-list-installed.component.scss' ],
   imports: [
-    NgIf,
     InfiniteScrollerDirective,
-    NgFor,
     PluginCardComponent,
     ButtonComponent,
     DeleteButtonComponent
@@ -81,7 +78,7 @@ export class PluginListInstalledComponent implements OnInit {
           this.onDataSubject.next(res.data)
         },
 
-        error: err => this.notifier.error(err.message)
+        error: err => this.notifier.handleError(err)
       })
   }
 
@@ -145,7 +142,7 @@ export class PluginListInstalledComponent implements OnInit {
         },
 
         error: err => {
-          this.notifier.error(err.message)
+          this.notifier.handleError(err)
           this.uninstalling[pluginKey] = false
         }
       })
@@ -179,7 +176,7 @@ export class PluginListInstalledComponent implements OnInit {
         },
 
         error: err => {
-          this.notifier.error(err.message)
+          this.notifier.handleError(err)
           this.updating[pluginKey] = false
         }
       })

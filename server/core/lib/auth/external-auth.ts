@@ -19,10 +19,11 @@ import {
 } from '@server/types/plugins/register-server-auth.model.js'
 import { UserAdminFlag, UserRole } from '@peertube/peertube-models'
 import { BypassLogin } from './oauth-model.js'
+import { isDevInstance } from '@peertube/peertube-node-utils'
 
 export type ExternalUser =
-  Pick<MUser, 'username' | 'email' | 'role' | 'adminFlags' | 'videoQuotaDaily' | 'videoQuota'> &
-  { displayName: string }
+  & Pick<MUser, 'username' | 'email' | 'role' | 'adminFlags' | 'videoQuotaDaily' | 'videoQuota'>
+  & { displayName: string }
 
 // Token is the key, expiration date is the value
 const authBypassTokens = new Map<string, {
@@ -45,7 +46,7 @@ async function onExternalUserAuthenticated (options: {
     return
   }
 
-  const { res } = authResult
+  const { res, externalRedirectUri } = authResult
 
   if (!isAuthResultValid(npmName, authName, authResult)) {
     res.redirect('/login?externalAuthError=true')
@@ -76,7 +77,20 @@ async function onExternalUserAuthenticated (options: {
     }
   }
 
-  res.redirect(`/login?externalAuthToken=${bypassToken}&username=${user.username}`)
+  if (externalRedirectUri) {
+    const url = new URL(externalRedirectUri)
+    url.searchParams.set('externalAuthToken', bypassToken)
+    url.searchParams.set('username', user.username)
+    res.redirect(url.href)
+  } else {
+    const query = `externalAuthToken=${bypassToken}&username=${user.username}`
+
+    if (isDevInstance() && process.env.ANGULAR_CLIENT_ENABLED === 'true') {
+      res.redirect(`http://localhost:3000/login?${query}`)
+    } else {
+      res.redirect(`/login?${query}`)
+    }
+  }
 }
 
 async function getAuthNameFromRefreshGrant (refreshToken?: string) {
@@ -124,7 +138,10 @@ async function getBypassFromPasswordGrant (username: string, password: string): 
 
     logger.debug(
       'Using auth method %s of plugin %s to login %s with weight %d.',
-      authName, npmName, loginOptions.id, authOptions.getWeight()
+      authName,
+      npmName,
+      loginOptions.id,
+      authOptions.getWeight()
     )
 
     try {
@@ -135,7 +152,9 @@ async function getBypassFromPasswordGrant (username: string, password: string): 
 
       logger.info(
         'Login success with auth method %s of plugin %s for %s.',
-        authName, npmName, loginOptions.id
+        authName,
+        npmName,
+        loginOptions.id
       )
 
       return {
@@ -153,9 +172,12 @@ async function getBypassFromPasswordGrant (username: string, password: string): 
   return undefined
 }
 
-function getBypassFromExternalAuth (username: string, externalAuthToken: string): BypassLogin {
+function consumeBypassFromExternalAuth (username: string, externalAuthToken: string): BypassLogin {
   const obj = authBypassTokens.get(externalAuthToken)
   if (!obj) throw new Error('Cannot authenticate user with unknown bypass token')
+
+  // Prevent replaying the same token
+  authBypassTokens.delete(externalAuthToken)
 
   const { expires, user, authName, npmName } = obj
 
@@ -170,7 +192,9 @@ function getBypassFromExternalAuth (username: string, externalAuthToken: string)
 
   logger.info(
     'Auth success with external auth method %s of plugin %s for %s.',
-    authName, npmName, user.email
+    authName,
+    npmName,
+    user.email
   )
 
   return {
@@ -224,7 +248,7 @@ function buildUserResult (pluginResult: RegisterServerAuthenticatedResult) {
 
 export {
   onExternalUserAuthenticated,
-  getBypassFromExternalAuth,
+  consumeBypassFromExternalAuth,
   getAuthNameFromRefreshGrant,
   getBypassFromPasswordGrant
 }

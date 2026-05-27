@@ -1,12 +1,15 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { arrayify } from '@peertube/peertube-core-utils'
 import {
   ActivityPubActor,
   HttpStatusCode,
   VideoComment,
+  VideoCreateResult,
   VideoObject,
+  VideoPlaylistCreateResult,
   VideoPlaylistPrivacy,
+  VideoPrivacy,
   WatchActionObject
 } from '@peertube/peertube-models'
 import {
@@ -25,8 +28,13 @@ import { expect } from 'chai'
 
 describe('Test ActivityPub', function () {
   let servers: PeerTubeServer[] = []
-  let video: { id: number, uuid: string, shortUUID: string }
-  let playlist: { id: number, uuid: string, shortUUID: string }
+
+  let video: VideoCreateResult
+  let privateVideo: VideoCreateResult
+
+  let playlist: VideoPlaylistCreateResult
+  let privatePlaylist: VideoPlaylistCreateResult
+
   let comment: VideoComment
 
   async function testAccount (path: string, hasIcon: boolean) {
@@ -38,22 +46,23 @@ describe('Test ActivityPub', function () {
     expect(object.name).to.equal('root')
     expect(object.preferredUsername).to.equal('root')
 
+    expect(object.indexable).to.be.true
+
     if (hasIcon) {
       expect(arrayify(object.icon).map(i => i.width)).to.deep.equal([ 120, 48, 600, 1500 ])
     } else {
       expect(object.icon).to.not.exist
     }
 
-    // TODO: enable in v8
-    // const htmlURLs = [
-    //   servers[0].url + '/accounts/root',
-    //   servers[0].url + '/a/root',
-    //   servers[0].url + '/a/root/video-channels'
-    // ]
+    const htmlURLs = [
+      servers[0].url + '/accounts/root',
+      servers[0].url + '/a/root',
+      servers[0].url + '/a/root/video-channels'
+    ]
 
-    // for (const htmlURL of htmlURLs) {
-    //   expect(object.url.find(u => u.href === htmlURL), htmlURL).to.exist
-    // }
+    for (const htmlURL of htmlURLs) {
+      expect(object.url.find(u => u.href === htmlURL), htmlURL).to.exist
+    }
   }
 
   async function testChannel (path: string, hasIcon: boolean) {
@@ -65,22 +74,23 @@ describe('Test ActivityPub', function () {
     expect(object.name).to.equal('Main root channel')
     expect(object.preferredUsername).to.equal('root_channel')
 
+    expect(object.indexable).to.be.true
+
     if (hasIcon) {
       expect(arrayify(object.icon).map(i => i.width)).to.deep.equal([ 120, 48, 600, 1500 ])
     } else {
       expect(object.icon).to.not.exist
     }
 
-    // TODO: enable in v8
-    // const htmlURLs = [
-    //   servers[0].url + '/video-channels/root_channel',
-    //   servers[0].url + '/c/root_channel',
-    //   servers[0].url + '/c/root_channel/videos'
-    // ]
+    const htmlURLs = [
+      servers[0].url + '/video-channels/root_channel',
+      servers[0].url + '/c/root_channel',
+      servers[0].url + '/c/root_channel/videos'
+    ]
 
-    // for (const htmlURL of htmlURLs) {
-    //   expect(object.url.find(u => u.href === htmlURL), htmlURL).to.exist
-    // }
+    for (const htmlURL of htmlURLs) {
+      expect(object.url.find(u => u.href === htmlURL), htmlURL).to.exist
+    }
   }
 
   async function testVideo (path: string) {
@@ -132,11 +142,24 @@ describe('Test ActivityPub', function () {
 
     {
       video = await servers[0].videos.quickUpload({ name: 'video' })
+      privateVideo = await servers[0].videos.quickUpload({ name: 'private video', privacy: VideoPrivacy.PRIVATE })
     }
 
     {
-      const attributes = { displayName: 'playlist', privacy: VideoPlaylistPrivacy.PUBLIC, videoChannelId: servers[0].store.channel.id }
-      playlist = await servers[0].playlists.create({ attributes })
+      playlist = await servers[0].playlists.create({
+        attributes: {
+          displayName: 'playlist',
+          privacy: VideoPlaylistPrivacy.PUBLIC,
+          videoChannelId: servers[0].store.channel.id
+        }
+      })
+      privatePlaylist = await servers[0].playlists.create({
+        attributes: {
+          displayName: 'private playlist',
+          privacy: VideoPlaylistPrivacy.PRIVATE,
+          videoChannelId: servers[0].store.channel.id
+        }
+      })
     }
 
     comment = await servers[0].comments.createThread({ text: 'thread', videoId: video.id })
@@ -211,6 +234,11 @@ describe('Test ActivityPub', function () {
     expect(object.watchSections).to.have.lengthOf(1)
     expect(object.watchSections[0].startTimestamp).to.equal(0)
     expect(object.watchSections[0].endTimestamp).to.equal(2)
+  })
+
+  it('Should not return private video or private playlist', async function () {
+    await makeActivityPubGetRequest(servers[0].url, '/videos/watch/' + privateVideo.uuid, HttpStatusCode.UNAUTHORIZED_401)
+    await makeActivityPubGetRequest(servers[0].url, '/video-playlists/' + privatePlaylist.uuid, HttpStatusCode.UNAUTHORIZED_401)
   })
 
   after(async function () {

@@ -33,7 +33,7 @@ import {
 import { isUserQuotaValid } from '../../user.js'
 import { LiveQuotaStore } from '../live-quota-store.js'
 import { LiveSegmentShaStore } from '../live-segment-sha-store.js'
-import { buildConcatenatedName, getLiveSegmentTime } from '../live-utils.js'
+import { buildConcatenatedName, getLiveSegmentListSize, getLiveSegmentTime } from '../live-utils.js'
 import { AbstractTranscodingWrapper, FFmpegTranscodingWrapper, RemoteTranscodingWrapper } from './transcoding-wrapper/index.js'
 
 interface MuxingSessionEvents {
@@ -49,7 +49,7 @@ interface MuxingSessionEvents {
   'after-cleanup': (options: { videoUUID: string }) => void
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+// oxlint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 declare interface MuxingSession {
   on<U extends keyof MuxingSessionEvents>(
     event: U,
@@ -62,7 +62,7 @@ declare interface MuxingSession {
   ): boolean
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+// oxlint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 class MuxingSession extends EventEmitter implements MuxingSession {
   private transcodingWrapper: AbstractTranscodingWrapper
 
@@ -110,8 +110,8 @@ class MuxingSession extends EventEmitter implements MuxingSession {
 
   private aborted = false
 
-  private readonly isAbleToUploadVideoWithCache = memoizee((userId: number) => {
-    return isUserQuotaValid({ userId, uploadSize: 1000 })
+  private readonly isAbleToUploadVideoWithCache = memoizee((channelUserId: number) => {
+    return isUserQuotaValid({ channelUserId, uploadSize: 1000 })
   }, { maxAge: MEMOIZE_TTL.LIVE_ABLE_TO_UPLOAD })
 
   private readonly hasClientSocketInBadHealthWithCache = memoizee((sessionId: string) => {
@@ -187,7 +187,11 @@ class MuxingSession extends EventEmitter implements MuxingSession {
 
     await this.transcodingWrapper.run()
 
-    this.filesWatcher = watch(this.outDirectory, { depth: 0 })
+    this.filesWatcher = watch(this.outDirectory, {
+      // Ignore 'segments-sha256.json' and 'segments-sha256.json.tmp' files that are frequently updated and not useful
+      ignored: path => path.endsWith('.json') || path.endsWith('json.tmp'),
+      depth: 0
+    })
 
     this.watchMasterFile()
     this.watchTSFiles()
@@ -225,18 +229,21 @@ class MuxingSession extends EventEmitter implements MuxingSession {
 
           logger.debug('Uploading live master playlist on object storage for %s', this.videoUUID, { masterContent, ...this.lTags() })
 
-          const url = await storeHLSFileFromContent(
+          await storeHLSFileFromContent(
             {
-              playlist: this.streamingPlaylist,
+              video: this.streamingPlaylist.Video,
               pathOrFilename: this.streamingPlaylist.playlistFilename,
               content: masterContent
             }
           )
-
-          this.streamingPlaylist.playlistUrl = url
         }
 
-        this.streamingPlaylist.assignP2PMediaLoaderInfoHashes(this.videoLive.Video, this.allResolutions.map(r => ({ height: r })))
+        const hlsStreams = [ ...this.allResolutions ]
+        if (this.hasAudio && this.hasVideo && !hlsStreams.includes(VideoResolution.H_NOVIDEO)) {
+          hlsStreams.push(VideoResolution.H_NOVIDEO)
+        }
+
+        this.streamingPlaylist.assignP2PMediaLoaderInfoHashes(this.videoLive.Video, Array.from(hlsStreams).map(r => ({ height: r })))
 
         await this.streamingPlaylist.save()
       } catch (err) {
@@ -294,7 +301,7 @@ class MuxingSession extends EventEmitter implements MuxingSession {
 
       if (this.streamingPlaylist.storage === FileStorage.OBJECT_STORAGE) {
         try {
-          await removeHLSFileObjectStorageByPath(this.streamingPlaylist, segmentPath)
+          await removeHLSFileObjectStorageByPath(this.streamingPlaylist.Video, segmentPath)
         } catch (err) {
           logger.error('Cannot remove segment %s from object storage', segmentPath, { err, ...this.lTags() })
         }
@@ -381,7 +388,7 @@ class MuxingSession extends EventEmitter implements MuxingSession {
 
     if (this.streamingPlaylist.storage === FileStorage.OBJECT_STORAGE) {
       try {
-        await storeHLSFileFromPath(this.streamingPlaylist, segmentPath)
+        await storeHLSFileFromPath(this.streamingPlaylist.Video, segmentPath)
 
         await this.processM3U8ToObjectStorage(segmentPath)
       } catch (err) {
@@ -416,7 +423,7 @@ class MuxingSession extends EventEmitter implements MuxingSession {
       const queue = this.objectStorageSendQueues.get(m3u8Path)
       await queue.add(() =>
         storeHLSFileFromContent({
-          playlist: this.streamingPlaylist,
+          video: this.streamingPlaylist.Video,
           pathOrFilename: m3u8Path,
           content: filteredPlaylistContent
         })
@@ -438,7 +445,10 @@ class MuxingSession extends EventEmitter implements MuxingSession {
     setTimeout(() => {
       // Wait latest segments generation, and close watchers
 
-      const promise = this.filesWatcher?.close() || Promise.resolve()
+      const promise = this.filesWatcher
+        ? this.filesWatcher.close()
+        : Promise.resolve()
+
       promise
         .then(() => {
           // Process remaining segments hash
@@ -541,7 +551,10 @@ class MuxingSession extends EventEmitter implements MuxingSession {
       hasVideo: this.hasVideo,
       probe: this.probe,
 
-      segmentListSize: VIDEO_LIVE.SEGMENTS_LIST_SIZE,
+      segmentListSize: getLiveSegmentListSize({
+        latencyMode: this.videoLive.latencyMode,
+        dvrWindow: this.videoLive.dvrWindow
+      }),
       segmentDuration: getLiveSegmentTime(this.videoLive.latencyMode),
 
       outDirectory: this.outDirectory

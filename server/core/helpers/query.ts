@@ -15,6 +15,7 @@ function pickCommonVideoQuery (query: VideosCommonQueryAfterSanitize) {
     'nsfwFlagsIncluded',
     'nsfwFlagsExcluded',
     'isLive',
+    'includeScheduledLive',
     'categoryOneOf',
     'licenceOneOf',
     'languageOneOf',
@@ -29,7 +30,8 @@ function pickCommonVideoQuery (query: VideosCommonQueryAfterSanitize) {
     'hasWebVideoFiles',
     'search',
     'excludeAlreadyWatched',
-    'autoTagOneOf'
+    'autoTagOneOf',
+    'stateOneOf'
   ])
 }
 

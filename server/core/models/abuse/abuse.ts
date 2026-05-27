@@ -42,7 +42,7 @@ import {
 } from '../../types/models/index.js'
 import { AccountModel, ScopeNames as AccountScopeNames, SummaryOptions as AccountSummaryOptions } from '../account/account.js'
 import { SequelizeModel, getSort, parseAggregateResult, throwIfNotValid } from '../shared/index.js'
-import { ThumbnailModel } from '../video/thumbnail.js'
+import { ThumbnailModel, thumbnailAPIAttributes } from '../video/thumbnail.js'
 import { VideoBlacklistModel } from '../video/video-blacklist.js'
 import { SummaryOptions as ChannelSummaryOptions, VideoChannelModel, ScopeNames as VideoChannelScopeNames } from '../video/video-channel.js'
 import { ScopeNames as CommentScopeNames, VideoCommentModel } from '../video/video-comment.js'
@@ -159,7 +159,7 @@ export enum ScopeNames {
               model: VideoModel.unscoped(),
               include: [
                 {
-                  attributes: [ 'filename', 'fileUrl', 'type' ],
+                  attributes: thumbnailAPIAttributes,
                   model: ThumbnailModel
                 },
                 {
@@ -200,38 +200,38 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
   @Default(null)
   @Is('AbuseReason', value => throwIfNotValid(value, isAbuseReasonValid, 'reason'))
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.ABUSES.REASON.max))
-  reason: string
+  declare reason: string
 
   @AllowNull(false)
   @Default(null)
   @Is('AbuseState', value => throwIfNotValid(value, isAbuseStateValid, 'state'))
   @Column
-  state: AbuseStateType
+  declare state: AbuseStateType
 
   @AllowNull(true)
   @Default(null)
   @Is('AbuseModerationComment', value => throwIfNotValid(value, isAbuseModerationCommentValid, 'moderationComment', true))
   @Column(DataType.STRING(CONSTRAINTS_FIELDS.ABUSES.MODERATION_COMMENT.max))
-  moderationComment: string
+  declare moderationComment: string
 
   @AllowNull(true)
   @Default(null)
   @Column(DataType.ARRAY(DataType.INTEGER))
-  predefinedReasons: AbusePredefinedReasonsType[]
+  declare predefinedReasons: AbusePredefinedReasonsType[]
 
   @AllowNull(true)
   @Column
-  processedAt: Date
+  declare processedAt: Date
 
   @CreatedAt
-  createdAt: Date
+  declare createdAt: Date
 
   @UpdatedAt
-  updatedAt: Date
+  declare updatedAt: Date
 
   @ForeignKey(() => AccountModel)
   @Column
-  reporterAccountId: number
+  declare reporterAccountId: number
 
   @BelongsTo(() => AccountModel, {
     foreignKey: {
@@ -241,11 +241,11 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
     as: 'ReporterAccount',
     onDelete: 'set null'
   })
-  ReporterAccount: Awaited<AccountModel>
+  declare ReporterAccount: Awaited<AccountModel>
 
   @ForeignKey(() => AccountModel)
   @Column
-  flaggedAccountId: number
+  declare flaggedAccountId: number
 
   @BelongsTo(() => AccountModel, {
     foreignKey: {
@@ -255,7 +255,7 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
     as: 'FlaggedAccount',
     onDelete: 'set null'
   })
-  FlaggedAccount: Awaited<AccountModel>
+  declare FlaggedAccount: Awaited<AccountModel>
 
   @HasOne(() => VideoCommentAbuseModel, {
     foreignKey: {
@@ -264,7 +264,7 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
     },
     onDelete: 'cascade'
   })
-  VideoCommentAbuse: Awaited<VideoCommentAbuseModel>
+  declare VideoCommentAbuse: Awaited<VideoCommentAbuseModel>
 
   @HasOne(() => VideoAbuseModel, {
     foreignKey: {
@@ -273,7 +273,7 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
     },
     onDelete: 'cascade'
   })
-  VideoAbuse: Awaited<VideoAbuseModel>
+  declare VideoAbuse: Awaited<VideoAbuseModel>
 
   static loadByIdWithReporter (id: number): Promise<MAbuseReporter> {
     const query = {
@@ -502,6 +502,8 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
     const abuseModel = this.VideoAbuse
     const entity = abuseModel.Video || abuseModel.deletedVideo
 
+    const video = abuseModel.Video
+
     return {
       id: entity.id,
       uuid: entity.uuid,
@@ -512,11 +514,13 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
       startAt: abuseModel.startAt,
       endAt: abuseModel.endAt,
 
-      deleted: !abuseModel.Video,
-      blacklisted: abuseModel.Video?.isBlacklisted() || false,
-      thumbnailPath: abuseModel.Video?.getMiniatureStaticPath(),
+      deleted: !video,
+      blacklisted: video?.isBlacklisted() || false,
 
-      channel: abuseModel.Video?.VideoChannel.toFormattedJSON() || abuseModel.deletedVideo?.channel
+      thumbnailPath: video?.getSmallestThumbnailStaticPath('16:9'),
+      thumbnails: video?.Thumbnails.map(t => t.toFormattedJSON()) || [],
+
+      channel: video?.VideoChannel.toFormattedJSON() || abuseModel.deletedVideo?.channel
     }
   }
 
@@ -575,8 +579,8 @@ export class AbuseModel extends SequelizeModel<AbuseModel> {
         ? this.ReporterAccount.toFormattedJSON()
         : null,
 
-      countReportsForReporter: (countReportsForReporter || 0),
-      countReportsForReportee: (countReportsForReportee || 0)
+      countReportsForReporter: countReportsForReporter || 0,
+      countReportsForReportee: countReportsForReportee || 0
     })
   }
 

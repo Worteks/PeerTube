@@ -1,8 +1,7 @@
-import { pick } from '@peertube/peertube-core-utils'
-import { ActivityCreate, FileStorage, VideoCommentPolicy, VideoExportJSON, VideoObject, VideoPrivacy } from '@peertube/peertube-models'
+import { pick, sortBy } from '@peertube/peertube-core-utils'
+import { ActivityCreate, FileStorage, VideoExportJSON, VideoObject, VideoPrivacy } from '@peertube/peertube-models'
 import { logger } from '@server/helpers/logger.js'
-import { USER_EXPORT_MAX_ITEMS } from '@server/initializers/constants.js'
-import { audiencify, getAudience } from '@server/lib/activitypub/audience.js'
+import { audiencify, getVideoAudience } from '@server/lib/activitypub/audience.js'
 import { buildCreateActivity } from '@server/lib/activitypub/send/send-create.js'
 import { buildChaptersAPHasPart } from '@server/lib/activitypub/video-chapters.js'
 import {
@@ -13,9 +12,10 @@ import {
 } from '@server/lib/object-storage/videos.js'
 import { VideoDownload } from '@server/lib/video-download.js'
 import { VideoPathManager } from '@server/lib/video-path-manager.js'
+import { PlayerSettingModel } from '@server/models/video/player-setting.js'
 import { VideoCaptionModel } from '@server/models/video/video-caption.js'
-import { VideoChannelModel } from '@server/models/video/video-channel.js'
 import { VideoChapterModel } from '@server/models/video/video-chapter.js'
+import { VideoEmbedPrivacyDomainModel } from '@server/models/video/video-embed-privacy-domain.js'
 import { VideoLiveModel } from '@server/models/video/video-live.js'
 import { VideoPasswordModel } from '@server/models/video/video-password.js'
 import { VideoSourceModel } from '@server/models/video/video-source.js'
@@ -29,10 +29,12 @@ import {
   MVideoCaptionLanguageUrl,
   MVideoChapter,
   MVideoFile,
-  MVideoFullLight,
-  MVideoLiveWithSetting,
+  MVideoFull,
+  MVideoLiveWithSettingSchedules,
   MVideoPassword
 } from '@server/types/models/index.js'
+import { MPlayerSetting } from '@server/types/models/video/player-setting.js'
+import { MEmbedPrivacyDomain } from '@server/types/models/video/video-embed-privacy-domain.js'
 import { MVideoSource } from '@server/types/models/video/video-source.js'
 import Bluebird from 'bluebird'
 import { createReadStream } from 'fs'
@@ -41,6 +43,7 @@ import { PassThrough, Readable } from 'stream'
 import { AbstractUserExporter, ExportResult } from './abstract-user-exporter.js'
 
 export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
+  // oxlint-disable-next-line no-useless-constructor
   constructor (
     private readonly options: ConstructorParameters<typeof AbstractUserExporter<VideoExportJSON>>[0] & {
       withVideoFiles: boolean
@@ -54,10 +57,13 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
     const activityPubOutbox: ActivityCreate<VideoObject>[] = []
     let staticFiles: ExportResult<VideoExportJSON>['staticFiles'] = []
 
-    const channels = await VideoChannelModel.listAllByAccount(this.user.Account.id)
+    let videoIds: number[] = []
+    let start = 0
+    const chunkSize = 100
 
-    for (const channel of channels) {
-      const videoIds = await VideoModel.getAllIdsFromChannel(channel, USER_EXPORT_MAX_ITEMS)
+    do {
+      videoIds = await VideoModel.getAllIdsByAccount({ account: this.user.Account, start, count: chunkSize })
+      start += videoIds.length
 
       await Bluebird.map(videoIds, async id => {
         try {
@@ -70,21 +76,23 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
           logger.warn('Cannot export video %d.', id, { err })
         }
       }, { concurrency: 10 })
-    }
+    } while (videoIds.length === chunkSize)
 
     return {
-      json: { videos: videosJSON },
+      json: { videos: sortBy(videosJSON, 'publishedAt') },
       activityPubOutbox,
       staticFiles
     }
   }
 
   private async exportVideo (videoId: number) {
-    const [ video, captions, source, chapters ] = await Promise.all([
+    const [ video, captions, source, chapters, playerSettings, embedPrivacyDomains ] = await Promise.all([
       VideoModel.loadFull(videoId),
       VideoCaptionModel.listVideoCaptions(videoId),
       VideoSourceModel.loadLatest(videoId),
-      VideoChapterModel.listChaptersOfVideo(videoId)
+      VideoChapterModel.listChaptersOfVideo(videoId),
+      PlayerSettingModel.loadByVideoId(videoId),
+      VideoEmbedPrivacyDomainModel.list(videoId)
     ])
 
     const passwords = video.privacy === VideoPrivacy.PASSWORD_PROTECTED
@@ -92,7 +100,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
       : []
 
     const live = video.isLive
-      ? await VideoLiveModel.loadByVideoIdWithSettings(videoId)
+      ? await VideoLiveModel.loadByVideoIdFull(videoId)
       : undefined // We already have captions, so we can set it to the video object
     ;(video as any).VideoCaptions = captions
     // Then fetch more attributes for AP serialization
@@ -101,7 +109,17 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
     const { relativePathsFromJSON, staticFiles, exportedVideoFileOrSource } = await this.exportVideoFiles({ video, captions })
 
     return {
-      json: this.exportVideoJSON({ video, captions, live, passwords, source, chapters, archiveFiles: relativePathsFromJSON }),
+      json: this.exportVideoJSON({
+        video,
+        captions,
+        live,
+        passwords,
+        source,
+        chapters,
+        playerSettings,
+        embedPrivacyDomains,
+        archiveFiles: relativePathsFromJSON
+      }),
       staticFiles,
       relativePathsFromJSON,
       activityPubOutbox: await this.exportVideoAP(videoAP, chapters, exportedVideoFileOrSource)
@@ -111,15 +129,17 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
   // ---------------------------------------------------------------------------
 
   private exportVideoJSON (options: {
-    video: MVideoFullLight
+    video: MVideoFull
     captions: MVideoCaption[]
-    live: MVideoLiveWithSetting
+    live: MVideoLiveWithSettingSchedules
     passwords: MVideoPassword[]
     source: MVideoSource
+    playerSettings: MPlayerSetting
     chapters: MVideoChapter[]
+    embedPrivacyDomains: MEmbedPrivacyDomain[]
     archiveFiles: VideoExportJSON['videos'][0]['archiveFiles']
   }): VideoExportJSON['videos'][0] {
-    const { video, captions, live, passwords, source, chapters, archiveFiles } = options
+    const { video, captions, live, passwords, source, chapters, playerSettings, embedPrivacyDomains, archiveFiles } = options
 
     return {
       uuid: video.uuid,
@@ -150,8 +170,15 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
 
       url: video.url,
 
-      thumbnailUrl: video.getMiniature()?.getOriginFileUrl(video) || null,
-      previewUrl: video.getPreview()?.getOriginFileUrl(video) || null,
+      thumbnailUrl: video.getBestThumbnail('16:9')?.getLocalFileUrl() || null,
+      previewUrl: video.getBestThumbnail('16:9')?.getLocalFileUrl() || null,
+      thumbnails: video.Thumbnails.map(t => ({
+        width: t.width,
+        height: t.height,
+        url: t.getLocalFileUrl(),
+        createdAt: t.createdAt.toISOString(),
+        updatedAt: t.updatedAt.toISOString()
+      })),
 
       views: video.views,
 
@@ -161,8 +188,6 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
       nsfw: video.nsfw,
 
       commentsPolicy: video.commentsPolicy,
-      // TODO: remove, deprecated in 6.2
-      commentsEnabled: video.commentsPolicy !== VideoCommentPolicy.DISABLED,
 
       downloadEnabled: video.downloadEnabled,
 
@@ -182,22 +207,31 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
 
       source: this.exportVideoSourceJSON(source),
 
+      playerSettings: this.exportPlayerSettingsJSON(playerSettings),
+
+      videoEmbedPrivacy: this.exportVideoEmbedPrivacyJSON(video, embedPrivacyDomains),
+
       archiveFiles
     }
   }
 
-  private exportLiveJSON (video: MVideo, live: MVideoLiveWithSetting) {
+  private exportLiveJSON (video: MVideo, live: MVideoLiveWithSettingSchedules) {
     if (!video.isLive) return undefined
 
     return {
       saveReplay: live.saveReplay,
       permanentLive: live.permanentLive,
       latencyMode: live.latencyMode,
+      dvrWindow: live.dvrWindow,
       streamKey: live.streamKey,
 
       replaySettings: live.ReplaySetting
         ? { privacy: live.ReplaySetting.privacy }
-        : undefined
+        : undefined,
+
+      schedules: live.LiveSchedules?.map(s => ({
+        startAt: s.startAt.toISOString()
+      }))
     }
   }
 
@@ -208,7 +242,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
       language: c.language,
       filename: c.filename,
       automaticallyGenerated: c.automaticallyGenerated,
-      fileUrl: c.getFileUrl(video)
+      fileUrl: c.getLocalFileUrl()
     }))
   }
 
@@ -257,6 +291,21 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
     }
   }
 
+  private exportPlayerSettingsJSON (playerSettings: MPlayerSetting) {
+    if (!playerSettings) return null
+
+    return {
+      theme: playerSettings.theme
+    }
+  }
+
+  private exportVideoEmbedPrivacyJSON (video: MVideo, embedPrivacyDomains: MEmbedPrivacyDomain[]) {
+    return {
+      policy: video.embedPrivacyPolicy,
+      domains: embedPrivacyDomains.map(d => d.domain)
+    }
+  }
+
   // ---------------------------------------------------------------------------
 
   private async exportVideoAP (
@@ -264,24 +313,38 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
     chapters: MVideoChapter[],
     exportedVideoFileOrSource: MVideoFile | MVideoSource
   ): Promise<ActivityCreate<VideoObject>> {
-    const icon = video.getPreview()
+    const icon = video.getBestThumbnail('16:9')
 
-    const audience = getAudience(video.VideoChannel.Account.Actor, video.privacy === VideoPrivacy.PUBLIC)
-    const videoObject = {
+    const audience = getVideoAudience({
+      account: video.VideoChannel.Account,
+      channel: video.VideoChannel,
+      privacy: video.privacy,
+      skipPrivacyCheck: true
+    })
+
+    const videoObject: VideoObject = {
       ...audiencify(await video.toActivityPubObject(), audience),
 
-      icon: [
-        {
-          ...icon.toActivityPubObject(video),
+      icon: icon
+        ? [
+          {
+            ...icon.toActivityPubObject(),
 
-          url: join(this.options.relativeStaticDirPath, this.getArchiveThumbnailFilePath(video, icon))
-        }
-      ],
+            url: join(this.options.relativeStaticDirPath, this.getArchiveThumbnailFilePath(video, icon))
+          }
+        ]
+        : [],
 
       subtitleLanguage: video.VideoCaptions.map(c => ({
         ...c.toActivityPubObject(video),
 
-        url: join(this.options.relativeStaticDirPath, this.getArchiveCaptionFilePath(video, c))
+        url: [
+          {
+            mediaType: 'text/vtt',
+            type: 'Link',
+            href: join(this.options.relativeStaticDirPath, this.getArchiveCaptionFilePath(video, c))
+          }
+        ]
       })),
 
       hasParts: buildChaptersAPHasPart(video, chapters),
@@ -310,7 +373,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
   // ---------------------------------------------------------------------------
 
   private async exportVideoFiles (options: {
-    video: MVideoFullLight
+    video: MVideoFull
     captions: MVideoCaption[]
   }) {
     const { video, captions } = options
@@ -358,11 +421,11 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
       relativePathsFromJSON.captions[caption.language] = join(this.relativeStaticDirPath, this.getArchiveCaptionFilePath(video, caption))
     }
 
-    const thumbnail = video.getPreview() || video.getMiniature()
+    const thumbnail = video.getBestThumbnail('16:9')
     if (thumbnail) {
       staticFiles.push({
         archivePath: this.getArchiveThumbnailFilePath(video, thumbnail),
-        readStreamFactory: () => Promise.resolve(createReadStream(thumbnail.getPath()))
+        readStreamFactory: () => Promise.resolve(createReadStream(thumbnail.getFSPath()))
       })
 
       relativePathsFromJSON.thumbnail = join(this.relativeStaticDirPath, this.getArchiveThumbnailFilePath(video, thumbnail))
@@ -384,7 +447,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
   private async generateVideoFileReadStream (options: {
     videoFile: MVideoFile
     separatedAudioFile: MVideoFile
-    video: MVideoFullLight
+    video: MVideoFull
   }): Promise<Readable> {
     const { video, videoFile, separatedAudioFile } = options
 
@@ -403,7 +466,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
     }
 
     const { stream } = videoFile.isHLS()
-      ? await getHLSFileReadStream({ playlist: video.getHLSPlaylist(), filename: videoFile.filename, rangeHeader: undefined })
+      ? await getHLSFileReadStream({ video, filename: videoFile.filename, rangeHeader: undefined })
       : await getWebVideoFileReadStream({ filename: videoFile.filename, rangeHeader: undefined })
 
     return stream
@@ -421,7 +484,7 @@ export class VideosExporter extends AbstractUserExporter<VideoExportJSON> {
 
   // ---------------------------------------------------------------------------
 
-  private async getArchiveVideo (video: MVideoFullLight) {
+  private async getArchiveVideo (video: MVideoFull) {
     const source = await VideoSourceModel.loadLatest(video.id)
 
     const { videoFile, separatedAudioFile } = video.getMaxQualityAudioAndVideoFiles()

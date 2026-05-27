@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core'
 import { HTMLServerConfig, ServerConfig, ServerConfigTheme } from '@peertube/peertube-models'
 import { logger } from '@root-helpers/logger'
 import { capitalizeFirstLetter } from '@root-helpers/string'
-import { ThemeManager } from '@root-helpers/theme-manager'
+import { ColorPaletteThemeConfig, ThemeCustomizationKey, ThemeManager } from '@root-helpers/theme-manager'
 import { UserLocalStorageKeys } from '@root-helpers/users'
 import { environment } from '../../../environments/environment'
 import { AuthService } from '../auth'
@@ -10,6 +10,7 @@ import { PluginService } from '../plugins/plugin.service'
 import { ServerService } from '../server'
 import { UserService } from '../users/user.service'
 import { LocalStorageService } from '../wrappers/storage.service'
+import { formatHEX, parse } from 'color-bits'
 
 @Injectable()
 export class ThemeService {
@@ -72,6 +73,14 @@ export class ThemeService {
     ]
   }
 
+  updateColorPalette (config: ColorPaletteThemeConfig = this.serverConfig.theme) {
+    this.themeManager.injectColorPalette({ currentTheme: this.getCurrentThemeName(), config })
+  }
+
+  getCSSConfigValue (configKey: ThemeCustomizationKey) {
+    return this.themeManager.getCSSConfigValue(configKey)
+  }
+
   private injectThemes (themes: ServerConfigTheme[], fromLocalStorage = false) {
     this.themes = themes
 
@@ -79,7 +88,7 @@ export class ThemeService {
 
     for (const theme of this.themes) {
       // Already added this theme?
-      if (fromLocalStorage === false && this.themeFromLocalStorage && this.themeFromLocalStorage.name === theme.name) continue
+      if (fromLocalStorage === false && this.themeFromLocalStorage?.name === theme.name) continue
 
       const links = this.themeManager.injectTheme(theme, environment.apiUrl)
 
@@ -89,7 +98,7 @@ export class ThemeService {
     }
   }
 
-  private getCurrentThemeName () {
+  getCurrentThemeName () {
     if (this.themeFromLocalStorage) return this.themeFromLocalStorage.name
 
     const theme = this.auth.isLoggedIn()
@@ -102,11 +111,18 @@ export class ThemeService {
     if (instanceTheme !== 'default') return instanceTheme
 
     // Default to dark theme if available and wanted by the user
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
       return 'peertube-core-dark-brown' satisfies ServerConfig['theme']['builtIn'][0]['name']
     }
 
     return instanceTheme
+  }
+
+  isUsingDefaultTheme (options: {
+    currentTheme: string
+    config: Pick<ColorPaletteThemeConfig, 'default' | 'builtIn'>
+  }) {
+    return this.themeManager.isUsingDefaultTheme(options)
   }
 
   private updateCurrentTheme () {
@@ -137,7 +153,7 @@ export class ThemeService {
       this.localStorageService.removeItem(UserLocalStorageKeys.LAST_ACTIVE_THEME, false)
     }
 
-    this.themeManager.injectCoreColorPalette()
+    this.themeManager.injectColorPalette({ currentTheme: currentThemeName, config: this.serverConfig.theme })
 
     this.oldThemeName = currentThemeName
   }
@@ -191,7 +207,7 @@ export class ThemeService {
     if (this.internalThemes.includes(this.themeFromLocalStorage.name)) return
 
     const loadedTheme = themes.find(t => t.name === this.themeFromLocalStorage.name)
-    if (!loadedTheme || loadedTheme.version !== this.themeFromLocalStorage.version) {
+    if (loadedTheme?.version !== this.themeFromLocalStorage.version) {
       // Need to remove this theme: we loaded an old version or a theme that does not exist anymore
       this.removeThemePlugins(this.themeFromLocalStorage.name)
       this.oldThemeName = undefined
@@ -207,5 +223,32 @@ export class ThemeService {
 
   private getTheme (name: string) {
     return this.themes.find(t => t.name === name)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Utils
+  // ---------------------------------------------------------------------------
+
+  formatColorForForm (value: string) {
+    if (!value) return null
+
+    try {
+      return formatHEX(parse(value))
+    } catch (err) {
+      logger.warn(`Error parsing color value "${value}"`, err)
+
+      return null
+    }
+  }
+
+  formatPixelsForForm (value: string) {
+    if (typeof value === 'number') return value + ''
+    if (typeof value !== 'string') return null
+
+    const result = parseInt(value.replace(/px$/, ''))
+
+    if (isNaN(result)) return null
+
+    return result + ''
   }
 }

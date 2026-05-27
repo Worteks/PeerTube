@@ -378,7 +378,7 @@ function register (...) {
     // Will be displayed in a button next to the login form
     authDisplayName: () => 'Auth method'
 
-    // If the user click on the auth button, PeerTube will forward the request in this function
+    // If the user click on the auth button, PeerTube will forward the request to this function
     onAuthRequest: (req, res) => {
       res.redirect('https://external-auth.example.com/auth')
     },
@@ -418,7 +418,12 @@ function register (...) {
         if (fieldName === 'videoQuotaDaily') return currentValue
 
         return newValue
-      }
+      },
+
+      // Ask PeerTube to redirect on this URL instead of classic `/login` page
+      // The URL will contain an `externalAuthToken` param that can be reused to authenticate to the PeerTube REST API
+      // Introduced in PeerTube >= 7.3
+      externalRedirectUri: 'https://mywebsite.example.com/peertube-login-cb'
     })
   })
 
@@ -878,7 +883,7 @@ You can take inspiration from core PeerTube themes in [client/src/sass/applicati
 :::
 
 ```css
-body {
+:root {
   --is-dark: 0; /* Or --is-dark: 1 if it's a dark theme */
 
   --primary: #FD9C50;

@@ -1,4 +1,3 @@
-import { CommonModule } from '@angular/common'
 import { HttpErrorResponse } from '@angular/common/http'
 import { booleanAttribute, Component, inject, input, OnDestroy, OnInit, output } from '@angular/core'
 import { FormsModule, ReactiveFormsModule } from '@angular/forms'
@@ -9,7 +8,7 @@ import { Video } from '@app/shared/shared-main/video/video.model'
 import { VideoStateMessageService } from '@app/shared/shared-video/video-state-message.service'
 import { NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap'
 import { ButtonComponent } from '../../shared/shared-main/buttons/button.component'
-import { UploadProgressComponent } from '../../shared/standalone-upload/upload-progress.component'
+import { UploadProgressComponent } from '../../shared/shared-upload/upload-progress.component'
 import { ManageErrorsComponent } from './common/manage-errors.component'
 import { VideoEdit } from './common/video-edit.model'
 import { VideoManageController } from './video-manage-controller.service'
@@ -20,7 +19,6 @@ import { VideoManageMenuComponent } from './video-manage-menu.component'
   styleUrls: [ './video-manage-container.component.scss' ],
   templateUrl: './video-manage-container.component.html',
   imports: [
-    CommonModule,
     RouterModule,
     FormsModule,
     ReactiveFormsModule,
@@ -50,7 +48,8 @@ export class VideoManageContainerComponent implements OnInit, OnDestroy {
 
   canRetryUpload = true
 
-  private isUpdating = false
+  isUpdating = false
+
   private videoEdit: VideoEdit
 
   ngOnInit (): void {
@@ -74,8 +73,20 @@ export class VideoManageContainerComponent implements OnInit, OnDestroy {
 
   // ---------------------------------------------------------------------------
 
-  getStateWarning () {
-    return this.videoStateMessage.buildWarn(this.videoEdit.getVideoAttributes().state)
+  getVideoWarning () {
+    const video = this.videoEdit.getVideoAttributes()
+
+    return this.videoStateMessage.buildWarn({ videoId: video.id, state: video.state })
+  }
+
+  getVideoError () {
+    const video = this.videoEdit.getVideoAttributes()
+
+    return this.videoStateMessage.buildErr({
+      videoId: video.id,
+      blacklisted: video.blacklisted,
+      blacklistedReason: video.blacklistedReason
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -101,6 +112,9 @@ export class VideoManageContainerComponent implements OnInit, OnDestroy {
 
     if (this.hasFormErrors()) {
       this.displayFormErrorsMsg = true
+
+      window.scrollTo({ top: 0, behavior: 'instant' })
+
       return
     }
 

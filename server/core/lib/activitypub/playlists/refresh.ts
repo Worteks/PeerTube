@@ -6,16 +6,24 @@ import { MVideoPlaylist, MVideoPlaylistOwnerDefault } from '@server/types/models
 import { createOrUpdateVideoPlaylist } from './create-update.js'
 import { fetchRemoteVideoPlaylist } from './shared/index.js'
 
-function scheduleRefreshIfNeeded (playlist: MVideoPlaylist) {
+function schedulePlaylistRefreshIfNeeded (playlist: MVideoPlaylist) {
   if (!playlist.isOutdated()) return
 
-  JobQueue.Instance.createJobAsync({ type: 'activitypub-refresher', payload: { type: 'video-playlist', url: playlist.url } })
+  JobQueue.Instance.createJobAsync({
+    type: 'activitypub-refresher',
+    payload: { type: 'video-playlist', url: playlist.url },
+    deduplicationId: `refresh-video-playlist-${playlist.url}`
+  })
 }
 
 async function refreshVideoPlaylistIfNeeded (videoPlaylist: MVideoPlaylistOwnerDefault): Promise<MVideoPlaylistOwnerDefault> {
-  if (!videoPlaylist.isOutdated()) return videoPlaylist
-
   const lTags = loggerTagsFactory('ap', 'video-playlist', 'refresh', videoPlaylist.uuid, videoPlaylist.url)
+
+  if (!videoPlaylist.isOutdated()) {
+    logger.debug('Playlist ' + videoPlaylist.url + ' is not outdated, no need to refresh it.', lTags())
+
+    return videoPlaylist
+  }
 
   logger.info('Refreshing playlist %s.', videoPlaylist.url, lTags())
 
@@ -51,5 +59,5 @@ async function refreshVideoPlaylistIfNeeded (videoPlaylist: MVideoPlaylistOwnerD
 
 export {
   refreshVideoPlaylistIfNeeded,
-  scheduleRefreshIfNeeded
+  schedulePlaylistRefreshIfNeeded
 }

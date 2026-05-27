@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
+/* oxlint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { getAllFiles, getHLS } from '@peertube/peertube-core-utils'
 import { HttpStatusCode, UserRole, VideoDetails, VideoPrivacy, VideoResolution } from '@peertube/peertube-models'
@@ -17,6 +17,7 @@ describe('Test videos files API validators', function () {
 
   let userToken: string
   let moderatorToken: string
+  let editorToken: string
 
   // ---------------------------------------------------------------
 
@@ -30,6 +31,7 @@ describe('Test videos files API validators', function () {
 
     userToken = await servers[0].users.generateUserAndToken('user', UserRole.USER)
     moderatorToken = await servers[0].users.generateUserAndToken('moderator', UserRole.MODERATOR)
+    editorToken = await servers[0].channelCollaborators.createEditor('editor', 'root_channel')
   })
 
   describe('Getting metadata', function () {
@@ -54,7 +56,9 @@ describe('Test videos files API validators', function () {
 
     it('Should get metadata of private video with the appropriate token', async function () {
       for (const file of getAllFiles(video)) {
-        await makeRawRequest({ url: file.metadataUrl, token: servers[0].accessToken, expectedStatus: HttpStatusCode.OK_200 })
+        for (const token of [ servers[0].accessToken, editorToken ]) {
+          await makeRawRequest({ url: file.metadataUrl, token, expectedStatus: HttpStatusCode.OK_200 })
+        }
       }
     })
   })

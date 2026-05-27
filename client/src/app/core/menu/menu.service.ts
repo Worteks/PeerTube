@@ -18,8 +18,6 @@ export class MenuService {
   private menuCollapsed = false
   private menuChangedByUser = false
 
-  private collapsedBeforeUrl: boolean
-
   constructor () {
     // Do not display menu on small screens
     if (this.screenService.isInMenuOverlayView() || this.hasMenuCollapsedByUrl(window.location.pathname)) {
@@ -33,20 +31,21 @@ export class MenuService {
 
     this.peertubeRouterService.getNavigationEndEvents()
       .subscribe(e => {
-        if (this.hasMenuCollapsedByUrl(e.url)) {
+        if (this.hasMenuCollapsedByUrl(e.url) || this.hasMenuCollapsedByUrl(e.urlAfterRedirects)) {
           this.collapseByUrl()
           return
-        }
-
-        if (this.collapsedBeforeUrl !== undefined) {
-          this.setMenuCollapsed(this.collapsedBeforeUrl)
-          this.collapsedBeforeUrl = undefined
         }
       })
   }
 
   private hasMenuCollapsedByUrl (url: string) {
-    const collapsedBaseUrls = [ '/videos/publish', '/videos/manage/' ]
+    const collapsedBaseUrls = [
+      '/videos/publish',
+      '/videos/manage/',
+      '/admin/settings/config',
+      '/my-library/video-channels/manage',
+      '/my-library/video-channels/create'
+    ]
 
     for (const collapsedBaseUrl of collapsedBaseUrls) {
       if (url.startsWith(collapsedBaseUrl)) {
@@ -62,7 +61,6 @@ export class MenuService {
   private collapseByUrl () {
     if (this.menuCollapsed) return
 
-    this.collapsedBeforeUrl = this.menuCollapsed
     this.setMenuCollapsed(true)
   }
 

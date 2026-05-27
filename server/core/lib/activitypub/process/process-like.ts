@@ -29,8 +29,8 @@ async function processLikeVideo (byActor: MActorSignature, activity: ActivityLik
   const byAccount = byActor.Account
   if (!byAccount) throw new Error('Cannot create like with the non account actor ' + byActor.url)
 
-  const { video: onlyVideo } = await maybeGetOrCreateAPVideo({ videoObject: videoUrl, fetchType: 'only-video-and-blacklist' })
-  if (!onlyVideo?.isOwned()) return
+  const { video: onlyVideo } = await maybeGetOrCreateAPVideo({ videoObject: videoUrl, fetchType: 'with-blacklist' })
+  if (!onlyVideo?.isLocal()) return
 
   if (!canVideoBeFederated(onlyVideo)) {
     logger.warn(`Do not process like on video ${videoUrl} that cannot be federated`)
@@ -41,9 +41,9 @@ async function processLikeVideo (byActor: MActorSignature, activity: ActivityLik
     const video = await VideoModel.loadFull(onlyVideo.id, t)
 
     const existingRate = await AccountVideoRateModel.loadByAccountAndVideoOrUrl(byAccount.id, video.id, activity.id, t)
-    if (existingRate && existingRate.type === 'like') return
+    if (existingRate?.type === 'like') return
 
-    if (existingRate && existingRate.type === 'dislike') {
+    if (existingRate?.type === 'dislike') {
       await video.decrement('dislikes', { transaction: t })
       video.dislikes--
     }
