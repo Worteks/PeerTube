@@ -884,10 +884,13 @@ const CONFIG = {
     },
     get MODEL_PATH () {
       return config.get<string>('video_transcription.model_path')
-    },
+    }, 
     get TIMEOUT () {
       return parseDurationToMs(config.get<string>('video_transcription.timeout'))
     },
+    get LIMIT_VALID_TRANSCRIPTION_SIZE () {
+      return config.get<number>('video_transcription.limit_valid_transcription_size')
+    }, 
     REMOTE_RUNNERS: {
       get ENABLED () {
         return config.get<boolean>('video_transcription.remote_runners.enabled')
